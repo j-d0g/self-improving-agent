@@ -15,7 +15,121 @@ load_dotenv(Path(__file__).parent / ".env")
 import anthropic
 import pandas as pd
 from typing import Any
+from dataclasses import dataclass, field
+from datetime import datetime
 import traceback
+import json
+
+
+@dataclass
+class ExecutionTrace:
+    """Tracks a single query execution for metrics."""
+    query: str
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    # Execution tracking
+    code_attempts: list[dict] = field(default_factory=list)  # {code, result, error}
+    total_attempts: int = 0
+    successful: bool = False
+
+    # Error tracking
+    errors_encountered: list[dict] = field(default_factory=list)  # {type, message, attempt}
+    error_recovered: bool = False
+
+    # Learning tracking
+    learning_triggered: bool = False
+    learning_type: str = None  # "guideline", "function", or "both"
+    learning_description: str = None
+
+    # Timing
+    total_tool_calls: int = 0
+
+    def add_code_attempt(self, code: str, result: str, is_error: bool):
+        self.total_attempts += 1
+        self.code_attempts.append({
+            "attempt": self.total_attempts,
+            "code": code,
+            "result": result[:500] if result else None,  # Truncate for storage
+            "is_error": is_error
+        })
+        if is_error:
+            self.errors_encountered.append({
+                "attempt": self.total_attempts,
+                "message": result[:200] if result else "Unknown error"
+            })
+        else:
+            self.successful = True
+            if self.total_attempts > 1:
+                self.error_recovered = True
+
+    def to_dict(self) -> dict:
+        return {
+            "query": self.query,
+            "timestamp": self.timestamp,
+            "total_attempts": self.total_attempts,
+            "successful": self.successful,
+            "errors_encountered": len(self.errors_encountered),
+            "error_recovered": self.error_recovered,
+            "learning_triggered": self.learning_triggered,
+            "learning_type": self.learning_type,
+            "total_tool_calls": self.total_tool_calls
+        }
+
+
+@dataclass
+class AgentMetrics:
+    """Aggregated metrics across multiple queries."""
+    traces: list[ExecutionTrace] = field(default_factory=list)
+
+    def add_trace(self, trace: ExecutionTrace):
+        self.traces.append(trace)
+
+    def compute(self) -> dict:
+        if not self.traces:
+            return {"error": "No traces recorded"}
+
+        total = len(self.traces)
+        successful = sum(1 for t in self.traces if t.successful)
+        with_errors = sum(1 for t in self.traces if t.errors_encountered)
+        recovered = sum(1 for t in self.traces if t.error_recovered)
+        learned = sum(1 for t in self.traces if t.learning_triggered)
+
+        total_attempts = sum(t.total_attempts for t in self.traces)
+        total_tool_calls = sum(t.total_tool_calls for t in self.traces)
+
+        return {
+            "total_queries": total,
+            "successful_queries": successful,
+            "success_rate": round(successful / total * 100, 1),
+
+            "queries_with_errors": with_errors,
+            "error_rate": round(with_errors / total * 100, 1),
+
+            "errors_recovered": recovered,
+            "recovery_rate": round(recovered / with_errors * 100, 1) if with_errors > 0 else 0,
+
+            "learnings_created": learned,
+            "learning_rate": round(learned / total * 100, 1),
+
+            "avg_attempts_per_query": round(total_attempts / total, 2),
+            "avg_tool_calls_per_query": round(total_tool_calls / total, 2),
+
+            # First-try success (no errors at all)
+            "first_try_success": sum(1 for t in self.traces if t.successful and not t.errors_encountered),
+            "first_try_success_rate": round(
+                sum(1 for t in self.traces if t.successful and not t.errors_encountered) / total * 100, 1
+            )
+        }
+
+    def save(self, path: str = "metrics.json"):
+        data = {
+            "computed_at": datetime.now().isoformat(),
+            "summary": self.compute(),
+            "traces": [t.to_dict() for t in self.traces]
+        }
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        return path
 
 
 # Tool definitions
@@ -109,53 +223,61 @@ SYSTEM_PROMPT = """You are a self-improving financial data analysis agent.
 
 ## Your Mission
 Answer financial questions about a company's P&L dataset by generating and executing pandas code.
-When you learn something new that would help future queries, persist that knowledge by editing files.
+You improve by learning from your MISTAKES - when code fails or produces wrong results, you persist that learning to prevent the same error in future sessions.
 
 ## Workflow for Every Query
 
 ### Step 1: Gather Context
 ALWAYS start by reading these files (use read_file tool):
 1. knowledge/dataset_schema.md - Column definitions, valid values, important calculations
-2. knowledge/learned/functions.py - Helper functions you've created in past sessions
-3. knowledge/learned/guidelines.md - Best practices you've learned
+2. knowledge/learned/functions.py - Helper functions created from past mistakes
+3. knowledge/learned/guidelines.md - Lessons learned from past errors
 
 ### Step 2: Generate and Execute Code
 - Use execute_pandas tool to run your analysis
 - The DataFrame 'df' is pre-loaded with the financial data
 - Assign your final result to a 'result' variable
-- You can import pandas as pd and use any functions from knowledge/learned/functions.py
+- USE any helper functions from knowledge/learned/functions.py - they exist because past errors taught us we need them
 
-### Step 3: Validate Results
-After getting results, verify:
-- Does the result make sense? (e.g., revenue shouldn't be negative unless it's a return)
-- Did you filter correctly? (check row counts)
-- Did you handle all edge cases mentioned in the schema?
+### Step 3: Validate Results (ERROR DETECTION)
+After execution, CHECK FOR THESE ERROR SIGNALS:
+- **Execution error**: Code threw an exception
+- **Empty result**: DataFrame/Series has 0 rows (likely wrong filter)
+- **Unexpected None**: Result is None when a value was expected
+- **Nonsensical values**: Negative revenue (unless returns), impossibly large numbers
+- **Missing data**: NaN values where numbers expected
+- **Wrong magnitude**: Result seems off by orders of magnitude
 
-### Step 4: Learn and Persist (CRITICAL)
-If you discover something useful during this query:
+### Step 4: Error Recovery and Learning (CRITICAL)
+If ANY error signal is detected:
 
-**Add a helper function** - Edit knowledge/learned/functions.py:
-- If you wrote code that would be reusable (e.g., quarter filtering, margin calculation)
-- Find the "# ---LEARNING_MARKER---" line and add your function after it
+1. **STOP and analyze**: What went wrong? Classify the error:
+   - DATA_FILTER_ERROR: Wrong column name, value, or filter logic
+   - CALCULATION_ERROR: Wrong formula or aggregation
+   - EDGE_CASE_ERROR: Didn't handle quarter boundaries, negative values, etc.
+   - VALIDATION_ERROR: Asked about non-existent product/country/etc.
 
-**Add a guideline** - Edit knowledge/learned/guidelines.md:
-- If you made a mistake and learned from it
-- If you discovered a data quirk
-- Find the "<!-- ---LEARNING_MARKER--- -->" line and add your guideline after it
+2. **Fix and retry**: Correct the code and execute again
 
-**Log the example** - Edit knowledge/examples.md:
-- Log successful query patterns for reference
-- Find the "<!-- ---EXAMPLES_MARKER--- -->" line and add your example
+3. **PERSIST THE LEARNING** (only after successful recovery):
+   - Edit knowledge/learned/guidelines.md: Add a guideline describing the error and how to avoid it
+   - Edit knowledge/learned/functions.py: If you wrote a reusable fix, add it as a helper function
 
-## Error Handling
-If your code fails or returns unexpected results:
-1. Analyze what went wrong
-2. Fix the immediate issue
-3. If the error reveals a pattern others might hit, ADD A GUIDELINE
-4. If you wrote a fix that would help future queries, ADD A HELPER FUNCTION
+   Format for guidelines:
+   ```
+   ### [Error Type]: [Brief Description]
+   **Error**: [What went wrong]
+   **Cause**: [Root cause]
+   **Fix**: [How to avoid this]
+   ```
+
+## When NOT to Learn
+- Do NOT persist learnings if the query succeeded on first try
+- Do NOT add helper functions for one-off calculations
+- Only persist learnings that would prevent a CLASS of errors, not just one instance
 
 ## Important Rules
-- ALWAYS read knowledge files first before answering
+- ALWAYS read knowledge files first - they contain lessons from past mistakes
 - Use "Amount in USD" for all monetary calculations unless specifically asked about local currency
 - Quarters span 3 months: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec
 - "Revenue" typically means Net Revenue (sum of all FSLine Statement L1 = "Net Revenue" items)
@@ -166,7 +288,7 @@ If your code fails or returns unexpected results:
 After completing your analysis, provide:
 1. The answer to the user's question (clear and concise)
 2. Brief explanation of how you calculated it
-3. If you learned something, mention that you've persisted it for future sessions"""
+3. If you encountered and recovered from an error, explain what you learned"""
 
 
 class SelfImprovingAgent:
@@ -183,6 +305,9 @@ class SelfImprovingAgent:
 
         # Load any learned functions into namespace
         self.learned_namespace = self._load_learned_functions()
+
+        # Metrics tracking
+        self.metrics = AgentMetrics()
 
     def _load_learned_functions(self) -> dict:
         """Load learned functions from the knowledge directory."""
@@ -206,10 +331,10 @@ class SelfImprovingAgent:
         - answer: The final answer
         - code_executed: The pandas code that was run
         - learned: Whether the agent persisted any learnings
+        - trace: ExecutionTrace with detailed metrics
         """
         messages = [{"role": "user", "content": question}]
-        code_executed = []
-        learned_something = False
+        trace = ExecutionTrace(query=question)
 
         while True:
             response = self.client.messages.create(
@@ -232,10 +357,14 @@ class SelfImprovingAgent:
                         answer = block.text
                         break
 
+                # Save trace to metrics
+                self.metrics.add_trace(trace)
+
                 return {
                     "answer": answer,
-                    "code_executed": code_executed,
-                    "learned": learned_something
+                    "code_executed": [a["code"] for a in trace.code_attempts],
+                    "learned": trace.learning_triggered,
+                    "trace": trace
                 }
 
             # Handle tool calls
@@ -244,19 +373,29 @@ class SelfImprovingAgent:
                 if block.type == "tool_use":
                     tool_name = block.name
                     tool_input = block.input
+                    trace.total_tool_calls += 1
 
-                    # Track if we're editing knowledge files
+                    # Track if we're editing knowledge files (learning)
                     if tool_name in ("edit_file", "write_file"):
                         path = tool_input.get("path", "")
-                        if "knowledge/learned" in path or "knowledge/examples" in path:
-                            learned_something = True
-
-                    # Track code execution
-                    if tool_name == "execute_pandas":
-                        code_executed.append(tool_input.get("code", ""))
+                        if "knowledge/learned" in path:
+                            trace.learning_triggered = True
+                            if "functions.py" in path:
+                                trace.learning_type = "function" if not trace.learning_type else "both"
+                            elif "guidelines.md" in path:
+                                trace.learning_type = "guideline" if not trace.learning_type else "both"
 
                     # Execute the tool
                     result = self._execute_tool(tool_name, tool_input)
+
+                    # Track code execution results
+                    if tool_name == "execute_pandas":
+                        is_error = "error" in result.lower() or "Execution error" in result
+                        trace.add_code_attempt(
+                            code=tool_input.get("code", ""),
+                            result=result,
+                            is_error=is_error
+                        )
 
                     tool_results.append({
                         "type": "tool_result",
@@ -471,14 +610,23 @@ def main():
         print("ANSWER:")
         print("="*60)
         print(result["answer"])
-        if result["learned"]:
-            print("\n[Agent persisted learnings for future sessions]")
+
+        # Show trace summary
+        trace = result["trace"]
+        print("\n" + "-"*40)
+        print("EXECUTION TRACE:")
+        print(f"  Code attempts: {trace.total_attempts}")
+        print(f"  Errors encountered: {len(trace.errors_encountered)}")
+        print(f"  Error recovered: {trace.error_recovered}")
+        print(f"  Learning triggered: {trace.learning_triggered}")
+        if trace.learning_type:
+            print(f"  Learning type: {trace.learning_type}")
+        print("-"*40)
     else:
         # Interactive mode
         print("Self-Improving Financial Analysis Agent")
         print("="*40)
-        print("Ask questions about the financial dataset.")
-        print("Type 'quit' to exit, 'reset' to clear learnings.\n")
+        print("Commands: 'quit', 'reset', 'metrics'\n")
 
         while True:
             try:
@@ -486,17 +634,36 @@ def main():
                 if not question:
                     continue
                 if question.lower() == "quit":
+                    # Show final metrics before exiting
+                    if agent.metrics.traces:
+                        print("\n" + "="*40)
+                        print("SESSION METRICS:")
+                        for k, v in agent.metrics.compute().items():
+                            print(f"  {k}: {v}")
                     break
                 if question.lower() == "reset":
                     agent.reset_learnings()
+                    continue
+                if question.lower() == "metrics":
+                    if agent.metrics.traces:
+                        print("\nMETRICS:")
+                        for k, v in agent.metrics.compute().items():
+                            print(f"  {k}: {v}")
+                    else:
+                        print("No queries yet.")
                     continue
 
                 print("\nThinking...")
                 result = agent.query(question)
                 print("\n" + "-"*40)
                 print(result["answer"])
-                if result["learned"]:
-                    print("\n[Persisted learnings for future sessions]")
+
+                # Show brief trace
+                trace = result["trace"]
+                if trace.errors_encountered:
+                    print(f"\n[Errors: {len(trace.errors_encountered)}, Recovered: {trace.error_recovered}]")
+                if trace.learning_triggered:
+                    print(f"[Learning: {trace.learning_type}]")
                 print("-"*40 + "\n")
 
             except KeyboardInterrupt:
