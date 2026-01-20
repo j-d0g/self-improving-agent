@@ -1,6 +1,6 @@
-# Self-Improving Financial Analysis Agent
+# Financial Analysis Agent
 
-A self-improving AI agent that answers financial questions about P&L data using natural language. The agent learns from its mistakes and persists knowledge across sessions by editing its own knowledge files.
+An AI agent that answers financial questions about P&L data using natural language. The agent generates and executes pandas code with programmatic verification and comprehensive metrics tracking.
 
 ## Architecture
 
@@ -9,21 +9,10 @@ A self-improving AI agent that answers financial questions about P&L data using 
 │                    Financial Analysis Agent                  │
 │                                                             │
 │  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │   Read      │    │   Execute    │    │   Edit/Write  │  │
-│  │  knowledge/ │───▶│   pandas     │───▶│   knowledge/  │  │
-│  │  for context│    │   code       │    │   to learn    │  │
+│  │   Read      │    │   Execute    │    │   Verify &    │  │
+│  │  knowledge/ │───▶│   pandas     │───▶│   Track       │  │
+│  │  for context│    │   code       │    │   Metrics     │  │
 │  └─────────────┘    └──────────────┘    └───────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     knowledge/ directory                     │
-│                                                             │
-│  dataset_schema.md    - Column definitions, valid values    │
-│  examples.md          - Accumulated query examples          │
-│  learned/             - Agent-created improvements          │
-│    ├── functions.py   - Helper functions (agent edits this) │
-│    └── guidelines.md  - Best practices (agent edits this)   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -62,31 +51,34 @@ python agent.py "What was the total revenue for Product A in Q1 2024?"
 
 ### Commands in Interactive Mode
 - Type your question to ask the agent
-- `show` - Display current learned knowledge
-- `reset` - Reset all learned knowledge
+- `metrics` - Display session metrics
 - `quit` - Exit
 
-## How Self-Improvement Works
+## Features
 
-1. **Every query**: Agent reads `knowledge/` files for context
-2. **Executes code**: Generates and runs pandas code against the dataset
-3. **Learns from mistakes**: When the agent discovers something useful, it edits:
-   - `knowledge/learned/functions.py` - Adds reusable helper functions
-   - `knowledge/learned/guidelines.md` - Adds best practices
-   - `knowledge/examples.md` - Logs successful query patterns
+### Programmatic Verification
+The agent uses a 4-layer verification pipeline:
+1. **Execution Layer**: Catches exceptions, validates result exists
+2. **Data Shape Layer**: Validates DataFrames (not empty, correct columns)
+3. **Financial Domain Layer**: Domain-specific checks (revenue positive, margins valid)
+4. **Exception Classification**: Semantic analysis of errors for recovery hints
 
-4. **Future sessions**: New agent instances load the persisted knowledge
+### Metrics Tracking
+Every query is tracked with:
+- Success/failure status
+- Number of code attempts
+- Error categories encountered
+- Recovery success rate
+- Verification failures
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `agent.py` | Main agent with tool loop (~250 lines) |
+| `agent.py` | Main agent with tool loop |
 | `demo.py` | Interactive demo script |
+| `verification.py` | 4-layer verification pipeline |
 | `knowledge/dataset_schema.md` | Column definitions, valid values |
-| `knowledge/learned/functions.py` | Agent-created helper functions |
-| `knowledge/learned/guidelines.md` | Agent-created best practices |
-| `knowledge/examples.md` | Query log |
 
 ## Dataset
 
@@ -103,19 +95,3 @@ The agent analyzes `FUN_company_pl_actuals_dataset.csv`:
 - "Calculate the operating margin for Product B in 2023"
 - "Which product had the highest revenue in Q4 2023?"
 - "What was the year-over-year change in OPEX between 2022 and 2023?"
-
-## Demo: Cross-Session Learning
-
-**Session 1:**
-```
-You: What was Q1 2024 revenue for Product A?
-Agent: [Makes mistake with quarter filtering, learns, adds helper function]
-```
-
-**Session 2 (restart agent):**
-```
-You: What was Q2 2023 revenue for Product B?
-Agent: [Uses learned helper function, answers correctly]
-```
-
-Check `knowledge/learned/` files to see what the agent learned!

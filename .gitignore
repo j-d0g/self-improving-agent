@@ -1,6 +1,9 @@
 .venv/
 __pycache__/
 *.pyc
+agent/.env
 .env
 .idea/
 .DS_Store
+verified_agent/
+agent/logs/
