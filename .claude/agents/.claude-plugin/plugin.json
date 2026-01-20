@@ -1,0 +1,9 @@
+{
+  "name": "agemo-custom-agents",
+  "version": "1.0.0",
+  "description": "Custom agents for the meta-learning-agent project",
+  "agents": [
+    "../data-analyst.md",
+    "../doc-validator.md"
+  ]
+}
