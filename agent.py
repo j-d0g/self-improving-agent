@@ -14,11 +14,21 @@ load_dotenv(Path(__file__).parent / ".env")
 
 import anthropic
 import pandas as pd
-from typing import Any
+from typing import Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 import traceback
 import json
+
+# Import verification module
+from verification import (
+    VerificationPipeline,
+    ExceptionClassifier,
+    ErrorCategory,
+    ErrorType,
+    Severity,
+    VerificationReport
+)
 
 
 @dataclass
@@ -28,12 +38,12 @@ class ExecutionTrace:
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     # Execution tracking
-    code_attempts: list[dict] = field(default_factory=list)  # {code, result, error}
+    code_attempts: list[dict] = field(default_factory=list)  # {code, result, error, verification}
     total_attempts: int = 0
     successful: bool = False
 
-    # Error tracking
-    errors_encountered: list[dict] = field(default_factory=list)  # {type, message, attempt}
+    # Error tracking (now with verification-based classification)
+    errors_encountered: list[dict] = field(default_factory=list)  # {type, category, message, attempt, recovery_hint}
     error_recovered: bool = False
 
     # Learning tracking
@@ -41,21 +51,62 @@ class ExecutionTrace:
     learning_type: str = None  # "guideline", "function", or "both"
     learning_description: str = None
 
+    # Verification tracking
+    verification_failures: list[dict] = field(default_factory=list)  # Detailed verification results
+    programmatic_errors: int = 0  # Errors caught by programmatic verification (not LLM)
+
     # Timing
     total_tool_calls: int = 0
 
-    def add_code_attempt(self, code: str, result: str, is_error: bool):
+    def add_code_attempt(
+        self,
+        code: str,
+        result: str,
+        verification_report: VerificationReport = None
+    ):
+        """Add a code execution attempt with optional verification results."""
         self.total_attempts += 1
+
+        # Determine if this is an error based on verification
+        is_error = False
+        error_type = None
+        error_category = None
+        recovery_hint = None
+
+        if verification_report and not verification_report.passed:
+            is_error = True
+            self.programmatic_errors += 1
+            first_error = verification_report.first_error
+            if first_error:
+                error_type = first_error.error_type.value if first_error.error_type else "unknown"
+                error_category = first_error.category.value if first_error.category else "unknown"
+                recovery_hint = first_error.recovery_hint
+                self.verification_failures.append({
+                    "attempt": self.total_attempts,
+                    "layer": first_error.layer,
+                    "error_type": error_type,
+                    "category": error_category,
+                    "message": first_error.error_message,
+                    "recovery_hint": recovery_hint
+                })
+
+        # Store the attempt
         self.code_attempts.append({
             "attempt": self.total_attempts,
             "code": code,
             "result": result[:500] if result else None,  # Truncate for storage
-            "is_error": is_error
+            "is_error": is_error,
+            "error_type": error_type,
+            "error_category": error_category
         })
+
         if is_error:
             self.errors_encountered.append({
                 "attempt": self.total_attempts,
-                "message": result[:200] if result else "Unknown error"
+                "type": error_type,
+                "category": error_category,
+                "message": result[:200] if result else "Unknown error",
+                "recovery_hint": recovery_hint
             })
         else:
             self.successful = True
@@ -69,10 +120,12 @@ class ExecutionTrace:
             "total_attempts": self.total_attempts,
             "successful": self.successful,
             "errors_encountered": len(self.errors_encountered),
+            "error_categories": list(set(e.get("category") for e in self.errors_encountered if e.get("category"))),
             "error_recovered": self.error_recovered,
             "learning_triggered": self.learning_triggered,
             "learning_type": self.learning_type,
-            "total_tool_calls": self.total_tool_calls
+            "total_tool_calls": self.total_tool_calls,
+            "programmatic_errors": self.programmatic_errors
         }
 
 
@@ -96,6 +149,15 @@ class AgentMetrics:
 
         total_attempts = sum(t.total_attempts for t in self.traces)
         total_tool_calls = sum(t.total_tool_calls for t in self.traces)
+        programmatic_errors = sum(t.programmatic_errors for t in self.traces)
+
+        # Aggregate error categories
+        error_categories = {}
+        for t in self.traces:
+            for e in t.errors_encountered:
+                cat = e.get("category", "unknown")
+                if cat:
+                    error_categories[cat] = error_categories.get(cat, 0) + 1
 
         return {
             "total_queries": total,
@@ -118,7 +180,11 @@ class AgentMetrics:
             "first_try_success": sum(1 for t in self.traces if t.successful and not t.errors_encountered),
             "first_try_success_rate": round(
                 sum(1 for t in self.traces if t.successful and not t.errors_encountered) / total * 100, 1
-            )
+            ),
+
+            # Verification-specific metrics
+            "programmatic_errors_caught": programmatic_errors,
+            "error_categories": error_categories
         }
 
     def save(self, path: str = "metrics.json"):
@@ -309,6 +375,9 @@ class SelfImprovingAgent:
         # Metrics tracking
         self.metrics = AgentMetrics()
 
+        # Verification pipeline for programmatic error detection
+        self.verifier = VerificationPipeline()
+
     def _load_learned_functions(self) -> dict:
         """Load learned functions from the knowledge directory."""
         namespace = {"pd": pd}
@@ -386,16 +455,22 @@ class SelfImprovingAgent:
                                 trace.learning_type = "guideline" if not trace.learning_type else "both"
 
                     # Execute the tool
-                    result = self._execute_tool(tool_name, tool_input)
+                    result, verification_report = self._execute_tool_with_verification(
+                        tool_name, tool_input
+                    )
 
-                    # Track code execution results
+                    # Track code execution results with verification
                     if tool_name == "execute_pandas":
-                        is_error = "error" in result.lower() or "Execution error" in result
                         trace.add_code_attempt(
                             code=tool_input.get("code", ""),
                             result=result,
-                            is_error=is_error
+                            verification_report=verification_report
                         )
+
+                        # If verification failed, append feedback to help agent self-correct
+                        if verification_report and not verification_report.passed:
+                            feedback = verification_report.to_feedback()
+                            result = f"{result}\n\n[VERIFICATION FAILED]\n{feedback}"
 
                     tool_results.append({
                         "type": "tool_result",
@@ -405,27 +480,38 @@ class SelfImprovingAgent:
 
             messages.append({"role": "user", "content": tool_results})
 
-    def _execute_tool(self, name: str, input_data: dict) -> str:
-        """Execute a tool and return the result as a string."""
+    def _execute_tool_with_verification(
+        self, name: str, input_data: dict
+    ) -> tuple[str, Optional[VerificationReport]]:
+        """
+        Execute a tool and return (result, verification_report).
+
+        Verification is only performed for execute_pandas tool.
+        """
         try:
             if name == "read_file":
-                return self._tool_read_file(input_data["path"])
+                return self._tool_read_file(input_data["path"]), None
             elif name == "write_file":
-                return self._tool_write_file(input_data["path"], input_data["content"])
+                return self._tool_write_file(input_data["path"], input_data["content"]), None
             elif name == "edit_file":
                 return self._tool_edit_file(
                     input_data["path"],
                     input_data["old_string"],
                     input_data["new_string"]
-                )
+                ), None
             elif name == "execute_pandas":
-                return self._tool_execute_pandas(input_data["code"])
+                return self._tool_execute_pandas_with_verification(input_data["code"])
             elif name == "list_files":
-                return self._tool_list_files(input_data["path"])
+                return self._tool_list_files(input_data["path"]), None
             else:
-                return f"Unknown tool: {name}"
+                return f"Unknown tool: {name}", None
         except Exception as e:
-            return f"Error: {type(e).__name__}: {str(e)}"
+            return f"Error: {type(e).__name__}: {str(e)}", None
+
+    def _execute_tool(self, name: str, input_data: dict) -> str:
+        """Execute a tool and return the result as a string (legacy method)."""
+        result, _ = self._execute_tool_with_verification(name, input_data)
+        return result
 
     def _tool_read_file(self, path: str) -> str:
         """Read a file from the project."""
@@ -462,8 +548,15 @@ class SelfImprovingAgent:
 
         return f"Successfully edited {path}"
 
-    def _tool_execute_pandas(self, code: str) -> str:
-        """Safely execute pandas code against the dataset."""
+    def _tool_execute_pandas_with_verification(
+        self, code: str
+    ) -> tuple[str, VerificationReport]:
+        """
+        Safely execute pandas code and run programmatic verification.
+
+        Returns (result_string, verification_report).
+        The verification report contains all checks that were run.
+        """
         # Create a restricted namespace
         namespace = {
             "df": self.df.copy(),  # Use a copy to prevent mutations
@@ -503,27 +596,72 @@ class SelfImprovingAgent:
         }
         namespace["__builtins__"] = safe_builtins
 
+        report = VerificationReport()
+
         try:
             exec(code, namespace)
             result = namespace.get("result")
 
+            # Layer 1: Check if result exists
             if result is None:
-                return "Code executed but 'result' variable was not set. Please assign your final answer to 'result'."
+                result_str = "Code executed but 'result' variable was not set. Please assign your final answer to 'result'."
+                report.add(self.verifier.verify_execution_result(result_str))
+                return result_str, report
 
-            # Format the result nicely
+            # Layer 2: Data shape verification for DataFrames
             if isinstance(result, pd.DataFrame):
+                shape_report = self.verifier.verify_dataframe(result)
+                for r in shape_report.results:
+                    report.add(r)
+
+                # Format the result
                 if len(result) > 20:
-                    return f"DataFrame with {len(result)} rows:\n{result.head(20).to_string()}\n... (truncated)"
-                return f"DataFrame:\n{result.to_string()}"
+                    result_str = f"DataFrame with {len(result)} rows:\n{result.head(20).to_string()}\n... (truncated)"
+                else:
+                    result_str = f"DataFrame:\n{result.to_string()}"
+
             elif isinstance(result, pd.Series):
+                # Check if series is empty
+                if result.empty:
+                    report.add(self.verifier.data_shape.check_not_empty(
+                        pd.DataFrame(result)
+                    ))
+
                 if len(result) > 20:
-                    return f"Series with {len(result)} items:\n{result.head(20).to_string()}\n... (truncated)"
-                return f"Series:\n{result.to_string()}"
+                    result_str = f"Series with {len(result)} items:\n{result.head(20).to_string()}\n... (truncated)"
+                else:
+                    result_str = f"Series:\n{result.to_string()}"
+
+            elif isinstance(result, (int, float)):
+                # Layer 3: Basic financial value checks for numeric results
+                # Check for obviously wrong values
+                if isinstance(result, float) and (result != result):  # NaN check
+                    from verification import ErrorType as VErrorType, ErrorCategory as VErrorCategory, Severity as VSeverity, VerificationResult as VResult
+                    report.add(VResult.failure(
+                        VErrorType.VALUE_ERROR,
+                        "Result is NaN - calculation may have divided by zero or used invalid data",
+                        layer="domain",
+                        severity=VSeverity.ERROR,
+                        category=VErrorCategory.LOGIC_ERROR,
+                        recovery_hint="Check for division by zero or missing data in calculation"
+                    ))
+                result_str = str(result)
             else:
-                return str(result)
+                result_str = str(result)
+
+            return result_str, report
 
         except Exception as e:
-            return f"Execution error: {type(e).__name__}: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            # Use exception classifier for semantic error analysis
+            error_str = f"Execution error: {type(e).__name__}: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            classification = ExceptionClassifier.classify(error_str)
+            report.add(classification)
+            return error_str, report
+
+    def _tool_execute_pandas(self, code: str) -> str:
+        """Safely execute pandas code against the dataset (legacy method)."""
+        result, _ = self._tool_execute_pandas_with_verification(code)
+        return result
 
     def _tool_list_files(self, path: str) -> str:
         """List files in a directory."""
@@ -617,6 +755,10 @@ def main():
         print("EXECUTION TRACE:")
         print(f"  Code attempts: {trace.total_attempts}")
         print(f"  Errors encountered: {len(trace.errors_encountered)}")
+        if trace.errors_encountered:
+            categories = set(e.get("category") for e in trace.errors_encountered if e.get("category"))
+            print(f"  Error categories: {list(categories)}")
+        print(f"  Programmatic errors caught: {trace.programmatic_errors}")
         print(f"  Error recovered: {trace.error_recovered}")
         print(f"  Learning triggered: {trace.learning_triggered}")
         if trace.learning_type:
