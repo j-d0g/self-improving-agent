@@ -82,8 +82,8 @@ After applying changes, write a summary to `logs/improvements/improvement_<times
 
 ## Files You Can Modify
 
-- `knowledge/schema.md` - Dataset documentation
-- `knowledge/examples.md` - Query patterns and examples
+- `knowledge/schema.md` - Dataset documentation, formulas, edge cases
+- `knowledge/examples.md` - Query patterns with working code
 - `knowledge/functions.py` - Helper functions
 - `logs/improvements/*.md` - Improvement reports
 

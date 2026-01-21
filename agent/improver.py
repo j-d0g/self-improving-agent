@@ -8,6 +8,8 @@ Takes structured improvement specs and implements changes safely.
 from pathlib import Path
 import asyncio
 import json
+import shutil
+import subprocess
 from datetime import datetime
 
 # Note: Claude Agent SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
@@ -122,11 +124,17 @@ class ImproverAgent:
         # Save improvement report
         report_path = self._save_report(eval_file, final_answer, trace, dry_run)
 
+        # Commit improvements to learnings branch (unless dry run)
+        commit_result = None
+        if not dry_run:
+            commit_result = self._commit_improvements(eval_file)
+
         return {
             "result": final_answer,
             "trace": trace,
             "report_path": report_path,
-            "dry_run": dry_run
+            "dry_run": dry_run,
+            "commit": commit_result
         }
 
     def _build_improvement_prompt(self, eval_file: str, dry_run: bool) -> str:
@@ -146,6 +154,91 @@ Focus on:
 - Preserving existing content when adding new material
 - {"Reporting what would change" if dry_run else "Verifying changes were applied correctly"}
 """
+
+    def _commit_improvements(self, eval_file: str) -> dict:
+        """Commit knowledge changes to the learnings branch using git worktree."""
+        try:
+            # Check if there are changes to knowledge/
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "knowledge/"],
+                capture_output=True, text=True, cwd=self.project_root
+            )
+            if not status.stdout.strip():
+                return {"committed": False, "reason": "No changes to knowledge/"}
+
+            # Get repo root (may differ from project_root)
+            repo_root = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, cwd=self.project_root, check=True
+            ).stdout.strip()
+
+            # Worktree path (sibling of repo)
+            worktree_path = Path(repo_root).parent / ".worktree-learnings"
+            branch_name = "learnings"
+
+            # Check if learnings branch exists
+            branch_exists = subprocess.run(
+                ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"],
+                cwd=repo_root
+            ).returncode == 0
+
+            # Create worktree
+            if branch_exists:
+                subprocess.run(
+                    ["git", "worktree", "add", str(worktree_path), branch_name],
+                    capture_output=True, cwd=repo_root, check=True
+                )
+            else:
+                subprocess.run(
+                    ["git", "worktree", "add", "-b", branch_name, str(worktree_path), "HEAD"],
+                    capture_output=True, cwd=repo_root, check=True
+                )
+
+            try:
+                # Copy changed knowledge files to worktree
+                knowledge_src = self.project_root / "knowledge"
+                knowledge_dst = worktree_path / "agent" / "knowledge"
+
+                if knowledge_dst.exists():
+                    shutil.rmtree(knowledge_dst)
+                shutil.copytree(knowledge_src, knowledge_dst)
+
+                # Stage and commit in worktree
+                subprocess.run(
+                    ["git", "add", "agent/knowledge/"],
+                    cwd=worktree_path, check=True
+                )
+
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+                eval_name = Path(eval_file).stem
+                commit_msg = f"learning: {eval_name} ({timestamp})"
+
+                subprocess.run(
+                    ["git", "commit", "-m", commit_msg],
+                    capture_output=True, cwd=worktree_path, check=True
+                )
+
+                # Get commit hash
+                commit_hash = subprocess.run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, cwd=worktree_path
+                ).stdout.strip()
+
+                return {"committed": True, "branch": branch_name, "commit": commit_hash}
+
+            finally:
+                # Always clean up worktree
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    capture_output=True, cwd=repo_root
+                )
+                subprocess.run(
+                    ["git", "worktree", "prune"],
+                    capture_output=True, cwd=repo_root
+                )
+
+        except subprocess.CalledProcessError as e:
+            return {"committed": False, "error": str(e)}
 
     def _save_report(self, eval_file: str, result: str, trace: ExecutionTrace, dry_run: bool) -> str:
         """Save the improvement report."""
@@ -226,6 +319,15 @@ Examples:
 
     if "report_path" in result:
         print(f"\nReport saved to: {result['report_path']}")
+
+    if result.get("commit"):
+        commit = result["commit"]
+        if commit.get("committed"):
+            print(f"Committed to branch '{commit['branch']}': {commit['commit']}")
+        elif commit.get("reason"):
+            print(f"No commit: {commit['reason']}")
+        elif commit.get("error"):
+            print(f"Commit failed: {commit['error']}")
 
 
 if __name__ == "__main__":

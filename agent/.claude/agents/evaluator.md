@@ -151,7 +151,7 @@ Be thorough but fair:
 ## Files to Reference
 
 When evaluating, check these for context:
-- `knowledge/schema.md` - What the learner should know about the data
-- `knowledge/examples.md` - Query patterns the learner should follow
+- `knowledge/schema.md` - Data structure, valid values, formulas, edge cases
+- `knowledge/examples.md` - Query patterns with working code
 - `knowledge/functions.py` - Helper functions available
 - `evals/train.json` - Expected answers for training queries

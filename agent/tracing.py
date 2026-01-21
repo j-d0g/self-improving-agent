@@ -7,6 +7,7 @@ Used by both agent.py and agent_sdk.py.
 
 import json
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +43,7 @@ def get_agent_version() -> dict:
 class ExecutionTrace:
     """Tracks a single query execution for metrics."""
     query: str
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     agent_version: dict = field(default_factory=get_agent_version)
 
@@ -68,6 +70,7 @@ class ExecutionTrace:
         - Excludes runtime metrics (latency, cost, errors, etc.)
         """
         return {
+            "run_id": self.run_id,
             "agent_version": self.agent_version,
             "query": self.query,
             "timestamp": self.timestamp,

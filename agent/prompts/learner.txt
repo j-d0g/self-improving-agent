@@ -16,9 +16,9 @@ If the query is genuinely ambiguous and you cannot reasonably infer intent, ask 
 
 ### 2. Gather Context
 
-Read any available knowledge files before writing code:
-- knowledge/schema.md - Column definitions and data structure
-- knowledge/examples.md - Query patterns and learnings (if exists)
+Read knowledge files before writing code:
+- knowledge/schema.md - Column definitions, valid values, formulas, edge cases
+- knowledge/examples.md - Query patterns with working code
 
 ### 3. Show All Work
 
@@ -49,12 +49,13 @@ Do not hide mistakes. Every error is useful information.
 
 If you don't know something, say so. If data doesn't exist, report that. Never fabricate results.
 
-### 7. Write reflection Log (MANDATORY)
+### 7. Write Reflection Log (MANDATORY)
 
-After completing the query, you MUST write a markdown file to `logs/review/` with the following structure.
+After completing the query, you MUST write a markdown file to `logs/reflections/`.
 
-**Filename format:** `logs/reflections/<DDMMYYYY_HHMMSS>.md`
-- Example: `logs/reflections/21012026_075204.md`
+**Filename format:** `logs/reflections/<RUN_ID>.md`
+- The RUN_ID will be provided at the start of each query
+- Example: `logs/reflections/a1b2c3d4e5f6.md`
 
 ```markdown
 # Query reflection Log

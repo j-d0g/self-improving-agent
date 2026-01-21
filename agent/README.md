@@ -30,9 +30,9 @@ agent/
 │   └── improver.md       # Knowledge updater agent (sonnet)
 │
 ├── knowledge/            # Curated knowledge base (updated by improver)
-│   ├── schema.md         # Dataset documentation
-│   ├── examples.md       # Query patterns
-│   └── functions.py      # Helper functions
+│   ├── schema.md         # Data facts, column definitions, edge cases
+│   ├── examples.md       # Query patterns with working code
+│   └── functions.py      # Reusable helper functions
 │
 ├── logs/                 # All execution logs
 │   ├── sessions/         # Learner session logs (markdown)
@@ -181,8 +181,8 @@ The agent improves through accumulated knowledge:
 
 | File | Purpose |
 |------|---------|
-| `knowledge/schema.md` | Dataset column definitions, valid values |
+| `knowledge/schema.md` | Data facts, column definitions, formulas, edge cases |
 | `knowledge/examples.md` | Query patterns with working code |
-| `knowledge/learnings/` | Captured insights from tricky queries |
+| `knowledge/functions.py` | Reusable helper functions |
 
-The evaluator agent identifies gaps and can update these files to prevent repeated mistakes.
+The improver agent updates these based on evaluator feedback.

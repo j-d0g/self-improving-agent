@@ -11,6 +11,7 @@ Usage:
 import json
 import sys
 import argparse
+import uuid
 from pathlib import Path
 from datetime import datetime
 
@@ -55,15 +56,18 @@ def run_evaluation(eval_path: Path, label: str = None) -> dict:
     for i, query_data in enumerate(queries, 1):
         query = query_data["query"]
         difficulty = query_data.get("difficulty", "unknown")
+        run_id = uuid.uuid4().hex[:12]  # Unique ID for this query
 
         print(f"[{i}/{len(queries)}] ({difficulty}) {query[:60]}...")
+        print(f"    run_id: {run_id}")
 
         try:
-            result = agent.query(query)
+            result = agent.query(query, run_id=run_id)
             trace = result["trace"]
 
             results.append({
                 "query": query,
+                "run_id": run_id,
                 "expected_answer": query_data.get("answer", ""),
                 "difficulty": difficulty,
                 "tests": query_data.get("tests", ""),
@@ -83,6 +87,7 @@ def run_evaluation(eval_path: Path, label: str = None) -> dict:
         except Exception as e:
             results.append({
                 "query": query,
+                "run_id": run_id,
                 "expected_answer": query_data.get("answer", ""),
                 "difficulty": difficulty,
                 "tests": query_data.get("tests", ""),

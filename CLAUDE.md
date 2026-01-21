@@ -57,7 +57,7 @@ The learner reads these before answering queries:
 
 | File | Purpose |
 |------|---------|
-| `knowledge/schema.md` | Dataset column definitions, valid values |
+| `knowledge/schema.md` | Data facts, column definitions, formulas, edge cases |
 | `knowledge/examples.md` | Query patterns with working code |
 | `knowledge/functions.py` | Reusable helper functions |
 
