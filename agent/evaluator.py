@@ -12,9 +12,9 @@ from datetime import datetime
 
 # Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
 
-from claude_code_sdk import (
+from claude_agent_sdk import (
     query as sdk_query,
-    ClaudeCodeOptions,
+    ClaudeAgentOptions,
     AssistantMessage,
     ResultMessage,
     TextBlock,
@@ -34,6 +34,10 @@ class EvaluatorAgent:
         self.logs_dir = self.project_root / "logs"
         self.results_dir = self.project_root / "results"
         self.knowledge_dir = self.project_root / "knowledge"
+
+        # Ensure directories exist
+        self.results_dir.mkdir(exist_ok=True)
+        (self.logs_dir / "traces").mkdir(parents=True, exist_ok=True)
 
         # Load system prompt
         self.system_prompt = load_prompt("evaluator.txt")
@@ -70,7 +74,7 @@ class EvaluatorAgent:
         # Build the evaluation prompt
         prompt = self._build_evaluation_prompt(eval_file, apply_improvements)
 
-        options = ClaudeCodeOptions(
+        options = ClaudeAgentOptions(
             max_turns=20,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
@@ -193,7 +197,7 @@ Look for:
 Provide actionable suggestions to improve the agent's knowledge base.
 """
 
-        options = ClaudeCodeOptions(
+        options = ClaudeAgentOptions(
             max_turns=15,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),

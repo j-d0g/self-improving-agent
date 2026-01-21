@@ -1,363 +1,185 @@
 """
-Agent Orchestrator
+Self-Improving Agent Orchestrator
 
-Coordinates the financial analysis agent with automatic evaluation and improvement.
-Supports multiple evaluation modes: inline, batch, or background.
+Uses Claude Agent SDK with programmatic subagents (AgentDefinition) to coordinate:
+- learner: Answers financial queries, writes session logs
+- evaluator: Analyzes session logs, suggests improvements
+- improver: Applies improvements to knowledge base
+
+Architecture based on: https://platform.claude.com/docs/en/agent-sdk/overview
 """
 
-from pathlib import Path
 import asyncio
-import json
+from pathlib import Path
 from datetime import datetime
-from typing import Literal, Optional
-from dataclasses import dataclass, field
-import threading
-import queue
 
-# Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
+from claude_agent_sdk import (
+    query,
+    ClaudeSDKClient,
+    ClaudeAgentOptions,
+    AgentDefinition,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+)
 
-from agent import FinancialAnalysisAgent
-from evaluator import EvaluatorAgent
-from tracing import ExecutionTrace
+from prompts import load_prompt
 
-
-@dataclass
-class QueryResult:
-    """Result from an orchestrated query."""
-    query: str
-    answer: str
-    trace: ExecutionTrace
-    evaluation: Optional[dict] = None
-    improvements_applied: bool = False
+PROJECT_ROOT = Path(__file__).parent
 
 
-@dataclass
-class OrchestratorConfig:
-    """Configuration for the orchestrator."""
-    # Evaluation mode: 
-    # - "none": No automatic evaluation
-    # - "inline": Evaluate after every query (slower, more expensive)
-    # - "batch": Evaluate after N queries
-    # - "background": Queue evaluations to run asynchronously
-    eval_mode: Literal["none", "inline", "batch", "background"] = "batch"
-    
-    # For batch mode: evaluate after this many queries
-    batch_size: int = 5
-    
-    # Auto-apply improvements from evaluator?
-    auto_apply: bool = False
-    
-    # Use separate improver agent (vs evaluator applying directly)
-    # If True: evaluator analyzes → improver applies
-    # If False: evaluator analyzes and applies (when auto_apply=True)
-    use_improver: bool = True
-    
-    # Score threshold for triggering improvements (0-100)
-    improvement_threshold: float = 80.0
+# ============================================================
+# AGENT DEFINITIONS
+# ============================================================
+
+def get_agents() -> dict[str, AgentDefinition]:
+    """Define programmatic subagents."""
+    return {
+        "learner": AgentDefinition(
+            description="Data analysis agent for P&L financial queries. Answers questions about revenue, costs, margins using pandas. Writes detailed session logs with self-reflection to logs/sessions/.",
+            prompt=load_prompt("financial_agent.txt"),
+            tools=["Read", "Write", "Bash", "Grep", "Glob"]
+        ),
+        "evaluator": AgentDefinition(
+            description="Expert analyst that reviews session logs for patterns, inefficiencies, and errors. Identifies root causes and suggests concrete improvements to knowledge/. Writes evaluations to logs/evaluations/.",
+            prompt=load_prompt("evaluator.txt"),
+            tools=["Read", "Write", "Grep", "Glob"]
+        ),
+        "improver": AgentDefinition(
+            description="Applies approved improvements from evaluator to knowledge files (schema.md, examples.md, functions.py). Writes improvement reports to logs/improvements/.",
+            prompt=load_prompt("improver.txt"),
+            tools=["Read", "Write", "Edit", "Grep", "Glob"]
+        ),
+    }
 
 
-class AgentOrchestrator:
-    """
-    Orchestrates agent queries with automatic evaluation and improvement.
+ORCHESTRATOR_PROMPT = """You are an orchestrator for a self-improving financial analysis system.
+
+## Available Agents
+
+You can delegate to these specialized agents using the Task tool:
+
+1. **learner** - Answers financial queries
+   - Use for: Any data analysis question about P&L data
+   - Writes session logs with self-reflection to logs/sessions/
+
+2. **evaluator** - Analyzes session logs
+   - Use for: Reviewing recent query sessions for patterns and issues
+   - Writes evaluation reports to logs/evaluations/
+
+3. **improver** - Updates knowledge base
+   - Use for: Applying recommended improvements from evaluator
+   - Modifies files in knowledge/
+
+## Your Process
+
+**For regular queries:**
+1. Delegate to learner agent with the user's question
+2. Return the answer to the user
+
+**For "improve" or "self-improve" commands:**
+1. Call evaluator to analyze recent sessions in logs/sessions/
+2. Call improver to apply the recommended changes
+3. Report what was improved
+
+**For "evaluate" command:**
+1. Just call evaluator to analyze recent sessions
+2. Report findings without applying changes
+
+Be concise. Pass through the learner's answer directly to the user.
+"""
+
+
+# ============================================================
+# ORCHESTRATOR
+# ============================================================
+
+async def run_query(question: str, auto_improve: bool = False) -> str:
+    """Run a query through the orchestrator."""
     
-    Usage:
-        orchestrator = AgentOrchestrator()
-        result = orchestrator.query("What was revenue in Q1 2024?")
-        
-        # With inline evaluation
-        orchestrator = AgentOrchestrator(config=OrchestratorConfig(eval_mode="inline"))
-        
-        # With auto-apply improvements
-        orchestrator = AgentOrchestrator(config=OrchestratorConfig(auto_apply=True))
-    """
+    agents = get_agents()
     
-    def __init__(self, config: OrchestratorConfig = None):
-        self.config = config or OrchestratorConfig()
-        self.project_root = Path(__file__).parent
-        
-        # Initialize agents
-        self.agent = FinancialAnalysisAgent()
-        self.evaluator = EvaluatorAgent()
-        
-        # Query history for batch evaluation
-        self.query_history: list[QueryResult] = []
-        self.pending_evaluations: queue.Queue = queue.Queue()
-        
-        # Background worker thread (if needed)
-        self._background_worker = None
-        self._stop_worker = threading.Event()
-        
-        if self.config.eval_mode == "background":
-            self._start_background_worker()
+    options = ClaudeAgentOptions(
+        system_prompt=ORCHESTRATOR_PROMPT,
+        cwd=str(PROJECT_ROOT),
+        agents=agents,
+        allowed_tools=["Task", "Read", "Grep", "Glob"],  # Task for spawning subagents
+        max_turns=30,
+    )
     
-    def query(self, question: str) -> QueryResult:
-        """
-        Process a query through the agent with optional evaluation.
-        
-        Returns:
-            QueryResult with answer, trace, and optional evaluation
-        """
-        # Run the agent
-        agent_result = self.agent.query(question)
-        
-        result = QueryResult(
-            query=question,
-            answer=agent_result["answer"],
-            trace=agent_result["trace"]
-        )
-        
-        self.query_history.append(result)
-        
-        # Handle evaluation based on mode
-        if self.config.eval_mode == "inline":
-            self._evaluate_inline(result)
-        elif self.config.eval_mode == "batch":
-            self._check_batch_evaluation()
-        elif self.config.eval_mode == "background":
-            self.pending_evaluations.put(result)
-        
-        return result
+    prompt = question
+    if auto_improve:
+        prompt += "\n\nAfter answering, also run the evaluator on recent sessions and apply any improvements."
     
-    def _evaluate_inline(self, result: QueryResult):
-        """Run evaluation immediately after query."""
-        # Save a mini eval file for this single query
-        eval_data = self._create_eval_data([result])
-        eval_path = self._save_temp_eval(eval_data)
-        
-        # Run evaluator
-        eval_result = self.evaluator.evaluate(
-            eval_file=eval_path,
-            apply_improvements=self.config.auto_apply
-        )
-        
-        result.evaluation = {
-            "analysis": eval_result.get("analysis", ""),
-            "applied": self.config.auto_apply
-        }
-        result.improvements_applied = self.config.auto_apply
+    result = ""
+    cost = 0.0
     
-    def _check_batch_evaluation(self):
-        """Check if batch size reached and run evaluation."""
-        unevaluated = [r for r in self.query_history if r.evaluation is None]
-        
-        if len(unevaluated) >= self.config.batch_size:
-            self._run_batch_evaluation(unevaluated)
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query(prompt)
+        async for message in client.receive_response():
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        result = block.text
+                        print(block.text)
+            elif isinstance(message, ResultMessage):
+                cost = getattr(message, 'total_cost_usd', 0) or 0
     
-    def _run_batch_evaluation(self, results: list[QueryResult]):
-        """Run evaluation on a batch of results."""
-        eval_data = self._create_eval_data(results)
-        eval_path = self._save_temp_eval(eval_data)
-        
-        print(f"\n[Orchestrator] Running batch evaluation on {len(results)} queries...")
-        
-        eval_result = self.evaluator.evaluate(
-            eval_file=eval_path,
-            apply_improvements=self.config.auto_apply
-        )
-        
-        # Mark all as evaluated
-        for r in results:
-            r.evaluation = {"batch": True, "analysis": "See batch report"}
-            r.improvements_applied = self.config.auto_apply
-        
-        print(f"[Orchestrator] Batch evaluation complete. Auto-apply: {self.config.auto_apply}")
+    return result
+
+
+async def interactive_mode():
+    """Interactive REPL mode."""
+    print("\n" + "="*60)
+    print("Self-Improving Agent Orchestrator")
+    print("="*60)
+    print("Using Claude Agent SDK with AgentDefinition")
+    print()
+    print("Commands:")
+    print("  quit      - Exit")
+    print("  auto      - Toggle auto-improve mode")
+    print("  improve   - Run evaluator + improver on recent sessions")
+    print("  evaluate  - Run evaluator only (no changes)")
+    print()
     
-    def _start_background_worker(self):
-        """Start background thread for async evaluations."""
-        def worker():
-            while not self._stop_worker.is_set():
-                try:
-                    result = self.pending_evaluations.get(timeout=1.0)
-                    self._evaluate_inline(result)
-                    print(f"\n[Background] Evaluated: {result.query[:50]}...")
-                except queue.Empty:
-                    continue
-        
-        self._background_worker = threading.Thread(target=worker, daemon=True)
-        self._background_worker.start()
+    auto_improve = False
     
-    def _create_eval_data(self, results: list[QueryResult]) -> dict:
-        """Create evaluation data structure from results."""
-        return {
-            "eval_file": "orchestrator_inline",
-            "timestamp": datetime.now().isoformat(),
-            "summary": {
-                "total_queries": len(results),
-                "successful": len(results),
-                "errors": 0
-            },
-            "results": [
-                {
-                    "query": r.query,
-                    "expected_answer": "",  # No expected answer for live queries
-                    "agent_answer": r.answer,
-                    "metrics": {
-                        "total_tokens": r.trace.total_tokens,
-                        "tool_calls": r.trace.total_tool_calls
-                    },
-                    "status": "success"
-                }
-                for r in results
-            ]
-        }
-    
-    def _save_temp_eval(self, eval_data: dict) -> str:
-        """Save temporary evaluation file."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = self.project_root / "learnings" / f"orchestrator_eval_{timestamp}.json"
-        path.parent.mkdir(exist_ok=True)
-        
-        with open(path, "w") as f:
-            json.dump(eval_data, f, indent=2)
-        
-        return str(path)
-    
-    def force_evaluation(self):
-        """Force evaluation of all pending queries."""
-        unevaluated = [r for r in self.query_history if r.evaluation is None]
-        if unevaluated:
-            self._run_batch_evaluation(unevaluated)
-        else:
-            print("[Orchestrator] No pending queries to evaluate.")
-    
-    def get_stats(self) -> dict:
-        """Get orchestrator statistics."""
-        total = len(self.query_history)
-        evaluated = sum(1 for r in self.query_history if r.evaluation is not None)
-        improved = sum(1 for r in self.query_history if r.improvements_applied)
-        
-        return {
-            "total_queries": total,
-            "evaluated": evaluated,
-            "pending_evaluation": total - evaluated,
-            "improvements_applied": improved,
-            "eval_mode": self.config.eval_mode,
-            "auto_apply": self.config.auto_apply
-        }
-    
-    def shutdown(self):
-        """Shutdown orchestrator (stop background workers)."""
-        if self._background_worker:
-            self._stop_worker.set()
-            self._background_worker.join(timeout=5.0)
+    while True:
+        try:
+            mode_indicator = " [auto-improve]" if auto_improve else ""
+            question = input(f"You{mode_indicator}: ").strip()
+            
+            if not question:
+                continue
+            if question.lower() == 'quit':
+                break
+            if question.lower() == 'auto':
+                auto_improve = not auto_improve
+                print(f"Auto-improve: {'ON' if auto_improve else 'OFF'}")
+                continue
+            
+            print("\nThinking...\n")
+            await run_query(question, auto_improve)
+            print()
+            
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 def main():
-    """Interactive CLI for the orchestrator."""
     import sys
     
-    def print_help():
-        print("""
-Agent Orchestrator - Automated evaluation and improvement loop
-
-Usage:
-  python orchestrator.py                    Interactive mode (batch eval, no auto-apply)
-  python orchestrator.py --inline           Evaluate after every query
-  python orchestrator.py --auto             Auto-apply improvements
-  python orchestrator.py --background       Background async evaluation
-
-Options:
-  --inline          Evaluate immediately after each query
-  --batch N         Evaluate after N queries (default: 5)
-  --background      Queue evaluations for background processing
-  --auto            Automatically apply suggested improvements
-  --threshold N     Score threshold for improvements (0-100, default: 80)
-
-Examples:
-  python orchestrator.py --inline --auto    Full automation: eval + apply after each query
-  python orchestrator.py --batch 3          Evaluate every 3 queries
-  python orchestrator.py "question"         Single query with default config
-""")
-    
-    # Parse args
-    config = OrchestratorConfig()
-    query_arg = None
-    
-    args = sys.argv[1:]
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg in ["--help", "-h"]:
-            print_help()
-            return
-        elif arg == "--inline":
-            config.eval_mode = "inline"
-        elif arg == "--background":
-            config.eval_mode = "background"
-        elif arg == "--batch":
-            config.eval_mode = "batch"
-            if i + 1 < len(args) and args[i + 1].isdigit():
-                i += 1
-                config.batch_size = int(args[i])
-        elif arg == "--auto":
-            config.auto_apply = True
-        elif arg == "--threshold":
-            if i + 1 < len(args):
-                i += 1
-                config.improvement_threshold = float(args[i])
-        elif not arg.startswith("--"):
-            query_arg = arg
-        i += 1
-    
-    orchestrator = AgentOrchestrator(config=config)
-    
-    print(f"""
-Agent Orchestrator
-==================
-Eval mode: {config.eval_mode}
-Auto-apply: {config.auto_apply}
-Batch size: {config.batch_size if config.eval_mode == "batch" else "N/A"}
-""")
-    
-    if query_arg:
-        # Single query mode
-        print(f"Query: {query_arg}\n")
-        result = orchestrator.query(query_arg)
-        print("\n" + "=" * 60)
-        print("ANSWER:")
-        print("=" * 60)
-        print(result.answer)
-        print(f"\n[Tokens: {result.trace.total_tokens}, Tools: {result.trace.total_tool_calls}]")
-        if result.evaluation:
-            print(f"[Evaluated: Yes, Improvements applied: {result.improvements_applied}]")
+    if len(sys.argv) > 1:
+        question = " ".join(sys.argv[1:])
+        print(f"\nQuery: {question}\n")
+        asyncio.run(run_query(question))
     else:
-        # Interactive mode
-        print("Commands: 'quit', 'stats', 'eval' (force evaluation)\n")
-        
-        try:
-            while True:
-                question = input("You: ").strip()
-                if not question:
-                    continue
-                if question.lower() == "quit":
-                    orchestrator.force_evaluation()
-                    print("\nFinal Stats:", orchestrator.get_stats())
-                    break
-                if question.lower() == "stats":
-                    print("\nStats:", orchestrator.get_stats())
-                    continue
-                if question.lower() == "eval":
-                    orchestrator.force_evaluation()
-                    continue
-                
-                print("\nThinking...")
-                result = orchestrator.query(question)
-                
-                print("\n" + "-" * 40)
-                print(result.answer)
-                print(f"\n[Tokens: {result.trace.total_tokens}, Tools: {result.trace.total_tool_calls}]")
-                
-                stats = orchestrator.get_stats()
-                if config.eval_mode == "batch":
-                    pending = stats["pending_evaluation"]
-                    print(f"[Pending evaluation: {pending}/{config.batch_size}]")
-                
-                print("-" * 40 + "\n")
-                
-        except KeyboardInterrupt:
-            print("\n\nShutting down...")
-        finally:
-            orchestrator.shutdown()
+        asyncio.run(interactive_mode())
 
 
 if __name__ == "__main__":

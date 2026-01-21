@@ -11,9 +11,9 @@ import asyncio
 # Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
 # Don't load .env as it may conflict with CLI auth
 
-from claude_code_sdk import (
+from claude_agent_sdk import (
     query as sdk_query,
-    ClaudeCodeOptions,
+    ClaudeAgentOptions,
     AssistantMessage,
     ResultMessage,
     TextBlock,
@@ -57,7 +57,7 @@ class FinancialAnalysisAgent:
         current_turn = {"thinking": "", "tool_calls": []}
         final_answer = ""
 
-        options = ClaudeCodeOptions(
+        options = ClaudeAgentOptions(
             max_turns=15,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
