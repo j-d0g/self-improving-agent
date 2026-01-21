@@ -85,6 +85,7 @@ class LearnerAgent:
 
         if self.log_traces:
             self.traces_dir.mkdir(parents=True, exist_ok=True)
+            self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
     def save_session(self) -> str | None:
         """Save the session trace (call when conversation ends)."""
@@ -115,17 +116,12 @@ class LearnerAgent:
                 max_turns=15,
                 system_prompt=self.improver_prompt,
                 cwd=str(self.project_root),
-                allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
+                allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash"],
             )
 
-            prompt = f"""Read the session log at `{session_log_path}` and apply any improvements from the <suggested_improvements> section.
+            prompt = f"""Read the session log at `{session_log_path}` and apply any improvements listed in the ## Improvements section.
 
-1. Read the session log
-2. Extract improvements from <suggested_improvements>
-3. Apply actionable improvements to knowledge files (schema.md, examples.md)
-4. Write an improvement report to logs/improvements/
-
-Only apply improvements if they are actionable and safe."""
+Only apply improvements that are actionable. Mark completed items with [x]."""
 
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
@@ -144,7 +140,7 @@ Only apply improvements if they are actionable and safe."""
     async def _query_async(self, question: str) -> dict:
         """Async implementation of query with multi-turn support."""
         trace = ExecutionTrace(query=question)
-        trace.start_time = time.time()
+        start_time = time.time()
         current_turn = None  # Created fresh for each AssistantMessage
         final_answer = ""
         pending_tool_calls = {}  # Track tool calls by id for matching with results
@@ -156,66 +152,101 @@ Only apply improvements if they are actionable and safe."""
             allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
         )
 
+        def _extract_tool_output(content) -> str | None:
+            """Extract string output from tool result content."""
+            if content is None:
+                return None
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                # If content is list of blocks, extract text
+                parts = []
+                for b in content:
+                    if isinstance(b, dict):
+                        parts.append(str(b.get("text", b)))
+                    else:
+                        parts.append(str(b))
+                return "\n".join(parts)
+            return str(content)
+
+        def _process_tool_result(block, tool_id=None):
+            """Process a tool result block and update pending tool calls."""
+            # Try multiple ways to get the tool ID
+            if tool_id is None:
+                tool_id = getattr(block, 'tool_use_id', None)
+            if tool_id is None:
+                tool_id = getattr(block, 'id', None)
+            
+            output = _extract_tool_output(block.content)
+            
+            if tool_id and tool_id in pending_tool_calls:
+                pending_tool_calls[tool_id]["output"] = output
+            elif current_turn and current_turn["tool_calls"]:
+                # Fallback: match to the last tool call in current turn that doesn't have output
+                for tool_call in reversed(current_turn["tool_calls"]):
+                    if tool_call.get("output") is None:
+                        tool_call["output"] = output
+                        break
+
         async with ClaudeSDKClient(options=options) as client:
             await client.query(question)
             async for message in client.receive_response():
-                # Handle AssistantMessage - each one is a new turn
-                if isinstance(message, AssistantMessage):
-                    # Save previous turn if exists
-                    if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
-                        current_turn["thinking"] = current_turn["thinking"].strip()
-                        trace.turns.append(current_turn)
+                try:
+                    # Handle AssistantMessage - each one is a new turn
+                    if isinstance(message, AssistantMessage):
+                        # Save previous turn if exists
+                        if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
+                            current_turn["thinking"] = current_turn["thinking"].strip()
+                            trace.turns.append(current_turn)
 
-                    # Start new turn
-                    current_turn = {"thinking": "", "tool_calls": []}
+                        # Start new turn
+                        current_turn = {"thinking": "", "tool_calls": []}
 
-                    for block in message.content:
-                        if isinstance(block, ThinkingBlock):
-                            current_turn["thinking"] += block.text + "\n"
-                        elif isinstance(block, TextBlock):
-                            current_turn["thinking"] += block.text + "\n"
-                            final_answer = block.text
-                        elif isinstance(block, ToolUseBlock):
-                            trace.total_tool_calls += 1
-                            tool_call = {
-                                "tool": block.name,
-                                "input": block.input,
-                                "output": None,  # Will be filled when result arrives
-                            }
-                            current_turn["tool_calls"].append(tool_call)
-                            tool_id = getattr(block, 'id', None)
-                            if tool_id:
-                                pending_tool_calls[tool_id] = tool_call
-                        elif isinstance(block, ToolResultBlock):
-                            # Match output to its tool call
-                            tool_id = getattr(block, 'tool_use_id', None)
-                            if tool_id and tool_id in pending_tool_calls:
-                                # Extract output as string
-                                output = block.content
-                                if isinstance(output, list):
-                                    # If content is list of blocks, extract text
-                                    output = "\n".join(
-                                        str(b.get("text", b)) if isinstance(b, dict) else str(b)
-                                        for b in output
-                                    )
-                                pending_tool_calls[tool_id]["output"] = output
+                        for block in message.content:
+                            if isinstance(block, ThinkingBlock):
+                                current_turn["thinking"] += block.text + "\n"
+                            elif isinstance(block, TextBlock):
+                                current_turn["thinking"] += block.text + "\n"
+                                final_answer = block.text
+                            elif isinstance(block, ToolUseBlock):
+                                trace.total_tool_calls += 1
+                                tool_call = {
+                                    "tool": block.name,
+                                    "input": block.input,
+                                    "output": None,  # Will be filled when result arrives
+                                }
+                                current_turn["tool_calls"].append(tool_call)
+                                # Try to get tool ID for matching with results
+                                tool_id = getattr(block, 'id', None) or getattr(block, 'tool_use_id', None)
+                                if tool_id:
+                                    pending_tool_calls[tool_id] = tool_call
+                            elif isinstance(block, ToolResultBlock):
+                                _process_tool_result(block)
 
-                # Handle ResultMessage (contains usage stats)
-                elif isinstance(message, ResultMessage):
-                    if hasattr(message, 'usage') and message.usage:
-                        trace.input_tokens = message.usage.get('input_tokens', 0)
-                        trace.output_tokens = message.usage.get('output_tokens', 0)
-                        trace.total_tokens = trace.input_tokens + trace.output_tokens
-                    if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
-                        trace.total_cost_usd = message.total_cost_usd
+                    # Handle tool results that may come outside AssistantMessage
+                    elif hasattr(message, 'content') and message.content:
+                        for block in (message.content if isinstance(message.content, list) else [message.content]):
+                            if isinstance(block, ToolResultBlock):
+                                _process_tool_result(block)
+
+                    # Handle ResultMessage (contains usage stats)
+                    elif isinstance(message, ResultMessage):
+                        if hasattr(message, 'usage') and message.usage:
+                            trace.input_tokens = message.usage.get('input_tokens', 0)
+                            trace.output_tokens = message.usage.get('output_tokens', 0)
+                            trace.total_tokens = trace.input_tokens + trace.output_tokens
+                        if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
+                            trace.total_cost_usd = message.total_cost_usd
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}", exc_info=True)
+                    # Continue processing - don't let one error stop the trace
 
         # Finalize last turn
         if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
             current_turn["thinking"] = current_turn["thinking"].strip()
             trace.turns.append(current_turn)
 
-        trace.end_time = time.time()
-        trace.latency_seconds = trace.end_time - trace.start_time
+        trace.latency_seconds = time.time() - start_time
         trace.final_answer = final_answer
 
         # Add to metrics and session (session is saved on session end, not per-query)

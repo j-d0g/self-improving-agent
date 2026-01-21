@@ -1,43 +1,96 @@
-# Project: Financial Analysis Agent
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Overview
 
-This is a coding agent that answers financial questions about P&L data. The core innovation is **cross-session learning**: the agent persists learnings to files so new sessions benefit from past mistakes.
-
-## Key Files
-
-- `agent/agent.py` - Core agent implementation
-- `agent/demo.py` - Demo script
-- `agent/learning_demo.py` - Cross-session learning demo
-- `agent/eval_runner.py` - Evaluation harness
-- `agent/knowledge/` - Learning persistence directory
+Self-improving financial analysis agent that answers P&L questions using pandas. The core innovation is **cross-session learning**: a three-agent pipeline (Learner → Evaluator → Improver) that persists learnings to files so future sessions benefit from past mistakes.
 
 ## Architecture
 
-1. **Agentic Loop**: User query → Claude API → Tool calls → Response
-2. **Tools**: read_file, execute_pandas, list_files, edit_file
-3. **Learning**: On error recovery, agent writes patterns to knowledge/ files
-
-## Running
-
-```bash
-cd agent
-python agent.py "What was revenue for Product A in 2024?"
-python demo.py
-python learning_demo.py
-python eval_runner.py evals/train.json
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Learner   │────▶│  Evaluator  │────▶│  Improver   │
+│   (Haiku)   │     │   (Opus)    │     │  (Sonnet)   │
+└─────────────┘     └─────────────┘     └─────────────┘
+       │                   │                   │
+       ▼                   ▼                   ▼
+  logs/sessions/     logs/evaluations/    knowledge/
 ```
 
-## Development Notes
+- **Learner**: Answers queries, logs process + self-reflection
+- **Evaluator**: Critiques logs for correctness/efficiency, generates improvement specs
+- **Improver**: Applies specs to knowledge files (restricted to `knowledge/` only)
 
-- The agent uses Claude's tool calling API
-- Code execution is sandboxed (restricted builtins)
-- `edit_file` is restricted to `knowledge/` directory only
-- Learning is triggered in system prompt Step 5
+## Commands
+
+All commands run from `agent/` directory:
+
+```bash
+# Single query
+python agent.py "What was revenue for Product A in Q1 2024?"
+
+# Run evaluations
+python evaluate.py train          # Training set (9 queries)
+python evaluate.py test           # Test set (9 queries)
+
+# Benchmarking
+python benchmark.py run           # Full benchmark
+python benchmark.py dashboard     # View visualizations
+python benchmark.py list          # List all runs
+python benchmark.py compare <run1> <run2>
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `agent/agent.py` | Core LearnerAgent using Claude SDK |
+| `agent/improver.py` | ImproverAgent that updates knowledge files |
+| `agent/tracing.py` | ExecutionTrace, SessionTrace, metrics |
+| `agent/evaluate.py` | Runs train/test evaluation sets |
+| `agent/benchmark.py` | Performance tracking with visualizations |
+
+## Knowledge System
+
+The learner reads these before answering queries:
+
+| File | Purpose |
+|------|---------|
+| `knowledge/schema.md` | Dataset column definitions, valid values |
+| `knowledge/examples.md` | Query patterns with working code |
+| `knowledge/functions.py` | Reusable helper functions |
+
+The improver updates these based on evaluator feedback.
+
+## Log Structure
+
+```
+logs/
+├── sessions/      # Learner output (markdown with XML tags)
+├── evaluations/   # Evaluator judgments
+├── improvements/  # Improver reports
+└── traces/        # Raw JSON execution traces
+```
 
 ## Dataset
 
-`FUN_company_pl_actuals_dataset.csv` - P&L actuals for fictional company
-- Products: A, B, C, D (no others exist)
-- Countries: Australia, Canada, Germany, Japan, United Kingdom, United States
-- Years: 2020-2024
+`data/FUN_company_pl_actuals_dataset.csv` - 21,600 rows of P&L data
+- **Products**: A, B, C, D (no others exist)
+- **Countries**: Australia, Canada, Germany, Japan, United Kingdom, United States
+- **Years**: 2020-2024
+- **Metrics**: Revenue, COGS, OPEX, Other Income/Expenses
+
+## Claude Code Agents
+
+Defined in `agent/.claude/agents/`:
+- `learner.md` - Haiku model, answers financial queries, writes session logs
+- `evaluator.md` - Opus model, critiques session logs
+- `improver.md` - Sonnet model, applies knowledge updates
+
+## Development Notes
+
+- Agent uses Claude CLI authentication (not .env ANTHROPIC_API_KEY)
+- Session logs are mandatory - every query must produce a file in `logs/sessions/`
+- Improver is restricted to modifying only `knowledge/` directory
+- Agent version tracked via git commit in execution traces

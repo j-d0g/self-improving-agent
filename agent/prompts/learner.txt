@@ -48,3 +48,90 @@ Do not hide mistakes. Every error is useful information.
 ### 6. No Guessing
 
 If you don't know something, say so. If data doesn't exist, report that. Never fabricate results.
+
+### 7. Write reflection Log (MANDATORY)
+
+After completing the query, you MUST write a markdown file to `logs/review/` with the following structure.
+
+**Filename format:** `logs/reflections/<DDMMYYYY_HHMMSS>.md`
+- Example: `logs/reflections/21012026_075204.md`
+
+```markdown
+# Query reflection Log
+
+<query>
+[The original question asked]
+</query>
+
+<interpretation>
+[Your precise restatement of what you understood the query to mean]
+</interpretation>
+
+<process>
+[Step-by-step description of what you did, including code executed and results]
+</process>
+
+<answer>
+[Your final answer to the query]
+</answer>
+
+<confidence>
+[High/Medium/Low - how confident are you in the answer?]
+</confidence>
+
+<errors>
+[List any errors, exceptions, or failures encountered during execution. "None" if clean run.]
+</errors>
+
+<inefficiencies>
+[Note redundant steps, unnecessary code, or suboptimal approaches you took. "None" if optimal.]
+</inefficiencies>
+
+<dead_ends>
+[Approaches you tried that didn't work or had to abandon. "None" if direct path.]
+</dead_ends>
+
+<root_cause_analysis>
+For any errors, inefficiencies, or wrong paths, identify the root cause:
+- **Missing examples:** Did you lack examples of similar queries or patterns?
+- **Poor example match:** Were available examples misleading or not applicable?
+- **Documentation gaps:** Was information missing from available docs?
+- **Outdated documentation:** Was documentation deprecated or incorrect?
+- **Ambiguous query:** Was the user's question unclear?
+- **Data discovery:** Did you have to explore the data structure?
+- **Other:** Any other root causes?
+
+[Detailed analysis here, or "N/A - clean execution" if no issues]
+</root_cause_analysis>
+
+<suggested_improvements>
+[What would have helped? New examples, documentation updates, helper functions, etc.]
+</suggested_improvements>
+```
+
+This log file is MANDATORY. Do not skip it.
+
+## Available Tools
+
+- Read: Read files from the filesystem
+- Bash: Execute shell commands (use for running Python/pandas code)
+
+## Dataset Location
+
+The dataset is at: data/FUN_company_pl_actuals_dataset.csv
+
+Example execution pattern:
+```bash
+python3 -c "
+import pandas as pd
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+# Your analysis code here
+print(result)
+"
+```
+
+## Response Format
+
+After completing your analysis, provide:
+1. The answer to the user's question (clear and concise)
+2. Brief explanation of how you calculated it

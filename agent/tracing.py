@@ -51,26 +51,22 @@ class ExecutionTrace:
     output_tokens: int = 0
     total_tool_calls: int = 0
 
-    # Cost tracking
-    total_cost_usd: float = 0.0
-
-    # Latency tracking
-    start_time: float = 0.0  # time.time() when query started
-    end_time: float = 0.0    # time.time() when query completed
+    # Runtime metrics (not serialized to JSON)
     latency_seconds: float = 0.0
-
-    # Error tracking
-    errors_encountered: list = field(default_factory=list)
-    error_recovered: bool = False
-    learning_triggered: bool = False
-    total_attempts: int = 0
+    total_cost_usd: float = 0.0
 
     # Full execution history - each turn contains thinking + tool calls + results
     turns: list = field(default_factory=list)
     final_answer: str = ""
 
     def to_dict(self) -> dict:
-        """Serialize trace to dict (clean format for logs)."""
+        """Serialize trace to dict (clean format for logs).
+        
+        Format matches session trace structure:
+        - Each turn has 'thinking' and 'tool_calls'
+        - Each tool_call has 'tool', 'input', 'output'
+        - Excludes runtime metrics (latency, cost, errors, etc.)
+        """
         return {
             "agent_version": self.agent_version,
             "query": self.query,
