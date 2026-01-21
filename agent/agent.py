@@ -61,7 +61,7 @@ class FinancialAnalysisAgent:
             max_turns=15,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
-            allowed_tools=["Read", "Bash"],
+            allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
         )
 
         async for message in sdk_query(prompt=question, options=options):
