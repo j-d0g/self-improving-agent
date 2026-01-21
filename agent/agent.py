@@ -3,16 +3,23 @@ Financial Analysis Agent
 
 A coding agent that answers financial questions about P&L data using the Claude Code SDK.
 Uses SDK's built-in tools (Bash, Read) for execution.
+
+Workflow (deterministic, no orchestrator):
+  User → Learner Agent → Answer + Session Log
+                              ↓ (automatic)
+                         Improver (background)
 """
 
 from pathlib import Path
 import asyncio
+import logging
+import time
 
 # Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
 # Don't load .env as it may conflict with CLI auth
 
 from claude_agent_sdk import (
-    query as sdk_query,
+    ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
     ResultMessage,
@@ -23,19 +30,48 @@ from claude_agent_sdk import (
 from tracing import ExecutionTrace, AgentMetrics
 from prompts import load_prompt
 
+# Configure logging for background tasks
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Track background tasks for graceful shutdown
+_background_tasks: set[asyncio.Task] = set()
+
+
+async def wait_for_background_tasks(timeout: float = 30.0) -> None:
+    """Wait for all background tasks to complete."""
+    if not _background_tasks:
+        return
+    logger.info(f"Waiting for {len(_background_tasks)} background task(s)...")
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*_background_tasks, return_exceptions=True),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"Background tasks did not complete within {timeout}s")
+
 
 class FinancialAnalysisAgent:
-    """Financial analysis agent with full logging."""
+    """Financial analysis agent with full logging and background improvement."""
 
-    def __init__(self, dataset_path: str = "data/FUN_company_pl_actuals_dataset.csv", log_traces: bool = True):
+    def __init__(
+        self,
+        dataset_path: str = "data/FUN_company_pl_actuals_dataset.csv",
+        log_traces: bool = True,
+        enable_background_improve: bool = True,
+    ):
         """Initialize the agent."""
         self.project_root = Path(__file__).parent
         self.dataset_path = self.project_root / dataset_path
         self.traces_dir = self.project_root / "logs" / "traces"
+        self.sessions_dir = self.project_root / "logs" / "sessions"
         self.log_traces = log_traces
+        self.enable_background_improve = enable_background_improve
 
         # Load system prompt from file
         self.system_prompt = load_prompt("financial_agent.txt")
+        self.improver_prompt = load_prompt("improver.txt")
 
         # Verify dataset exists
         if not self.dataset_path.exists():
@@ -45,53 +81,103 @@ class FinancialAnalysisAgent:
         self.metrics = AgentMetrics()
 
         if self.log_traces:
-            self.traces_dir.mkdir(exist_ok=True)
+            self.traces_dir.mkdir(parents=True, exist_ok=True)
 
     def query(self, question: str) -> dict:
         """Process a user question through the agent loop."""
         return asyncio.run(self._query_async(question))
 
+    def find_latest_session_log(self) -> Path | None:
+        """Find the most recently created session log."""
+        if not self.sessions_dir.exists():
+            return None
+        session_files = list(self.sessions_dir.glob("*.md"))
+        if not session_files:
+            return None
+        session_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        return session_files[0]
+
+    async def _background_improve(self, session_log_path: Path) -> None:
+        """Run the improver agent in the background (multi-turn)."""
+        try:
+            logger.info(f"Background improvement starting for: {session_log_path.name}")
+
+            options = ClaudeAgentOptions(
+                max_turns=15,
+                system_prompt=self.improver_prompt,
+                cwd=str(self.project_root),
+                allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
+            )
+
+            prompt = f"""Read the session log at `{session_log_path}` and apply any improvements from the <suggested_improvements> section.
+
+1. Read the session log
+2. Extract improvements from <suggested_improvements>
+3. Apply actionable improvements to knowledge files (schema.md, examples.md)
+4. Write an improvement report to logs/improvements/
+
+Only apply improvements if they are actionable and safe."""
+
+            async with ClaudeSDKClient(options=options) as client:
+                await client.query(prompt)
+                async for message in client.receive_response():
+                    # Silent processing - don't print to user
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if isinstance(block, TextBlock):
+                                logger.debug(f"Improver: {block.text[:100]}...")
+
+            logger.info("Background improvement completed")
+
+        except Exception as e:
+            logger.error(f"Background improvement failed: {e}")
+
     async def _query_async(self, question: str) -> dict:
-        """Async implementation of query."""
+        """Async implementation of query with multi-turn support."""
         trace = ExecutionTrace(query=question)
+        trace.start_time = time.time()
         current_turn = {"thinking": "", "tool_calls": []}
         final_answer = ""
 
         options = ClaudeAgentOptions(
-            max_turns=15,
+            max_turns=20,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
             allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
         )
 
-        async for message in sdk_query(prompt=question, options=options):
-            # Handle AssistantMessage (contains text and tool use blocks)
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        current_turn["thinking"] += block.text + "\n"
-                        final_answer = block.text
-                    elif isinstance(block, ToolUseBlock):
-                        trace.total_tool_calls += 1
-                        current_turn["tool_calls"].append({
-                            "tool": block.name,
-                            "input": str(block.input)[:500],  # Truncate long inputs
-                        })
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(question)
+            async for message in client.receive_response():
+                # Handle AssistantMessage (contains text and tool use blocks)
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            current_turn["thinking"] += block.text + "\n"
+                            final_answer = block.text
+                        elif isinstance(block, ToolUseBlock):
+                            trace.total_tool_calls += 1
+                            current_turn["tool_calls"].append({
+                                "tool": block.name,
+                                "input": str(block.input)[:500],  # Truncate long inputs
+                            })
 
-            # Handle ResultMessage (contains usage stats)
-            elif isinstance(message, ResultMessage):
-                if hasattr(message, 'usage') and message.usage:
-                    trace.input_tokens = message.usage.get('input_tokens', 0)
-                    trace.output_tokens = message.usage.get('output_tokens', 0)
-                    trace.total_tokens = trace.input_tokens + trace.output_tokens
-                if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
-                    trace.total_cost_usd = message.total_cost_usd
+                # Handle ResultMessage (contains usage stats)
+                elif isinstance(message, ResultMessage):
+                    if hasattr(message, 'usage') and message.usage:
+                        trace.input_tokens = message.usage.get('input_tokens', 0)
+                        trace.output_tokens = message.usage.get('output_tokens', 0)
+                        trace.total_tokens = trace.input_tokens + trace.output_tokens
+                    if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
+                        trace.total_cost_usd = message.total_cost_usd
 
-        # Finalize turn
+        # Finalize turn and record latency
         current_turn["thinking"] = current_turn["thinking"].strip()
         if current_turn["thinking"] or current_turn["tool_calls"]:
             trace.turns.append(current_turn)
 
+        trace.end_time = time.time()
+        trace.latency_seconds = trace.end_time - trace.start_time
         trace.final_answer = final_answer
 
         # Save trace
@@ -100,6 +186,15 @@ class FinancialAnalysisAgent:
         if self.log_traces:
             log_path = self.metrics.save_trace(trace, self.traces_dir)
 
+        # Trigger background improvement (deterministic: always after learner completes)
+        if self.enable_background_improve:
+            session_log = self.find_latest_session_log()
+            if session_log:
+                task = asyncio.create_task(self._background_improve(session_log))
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+                logger.info("Background improvement task scheduled")
+
         return {
             "answer": final_answer,
             "trace": trace,
@@ -107,8 +202,8 @@ class FinancialAnalysisAgent:
         }
 
 
-def main():
-    """Simple CLI for testing the agent."""
+async def main_async():
+    """Async CLI for the agent."""
     import sys
     import traceback
 
@@ -116,7 +211,7 @@ def main():
 
     if len(sys.argv) > 1:
         question = " ".join(sys.argv[1:])
-        result = agent.query(question)
+        result = await agent._query_async(question)
         print("\n" + "="*60)
         print("ANSWER:")
         print("="*60)
@@ -125,14 +220,27 @@ def main():
         trace = result["trace"]
         print("\n" + "-"*40)
         print("METRICS:")
+        print(f"  Latency: {trace.latency_seconds:.1f}s")
         print(f"  Tokens: {trace.total_tokens} (in: {trace.input_tokens}, out: {trace.output_tokens})")
         print(f"  Tool calls: {trace.total_tool_calls}")
         print(f"  Cost: ${trace.total_cost_usd:.4f}")
         print("-"*40)
+
+        # Wait for background improvement
+        if _background_tasks:
+            print("\nWaiting for background improvement...")
+            await wait_for_background_tasks(timeout=30.0)
+            print("Done.")
     else:
-        print("Financial Analysis Agent")
-        print("="*40)
-        print("Commands: 'quit', 'metrics'\n")
+        print("Financial Analysis Agent (with background improvement)")
+        print("="*50)
+        print("Workflow: Query → Answer → Background Improvement")
+        print()
+        print("Commands:")
+        print("  quit              - Exit (waits for background tasks)")
+        print("  metrics           - Show session metrics")
+        print("  no-improve <q>    - Answer without background improvement")
+        print()
 
         while True:
             try:
@@ -140,6 +248,10 @@ def main():
                 if not question:
                     continue
                 if question.lower() == "quit":
+                    # Wait for background tasks
+                    if _background_tasks:
+                        print("\nWaiting for background tasks...")
+                        await wait_for_background_tasks(timeout=10.0)
                     if agent.metrics.traces:
                         print("\n" + "="*40)
                         print("SESSION METRICS:")
@@ -151,25 +263,40 @@ def main():
                         print("\nMETRICS:")
                         for k, v in agent.metrics.compute().items():
                             print(f"  {k}: {v}")
+                        print(f"  background_tasks_pending: {len(_background_tasks)}")
                     else:
                         print("No queries yet.")
                     continue
 
+                # Check for no-improve prefix
+                if question.lower().startswith("no-improve "):
+                    agent.enable_background_improve = False
+                    question = question[11:].strip()
+                else:
+                    agent.enable_background_improve = True
+
                 print("\nThinking...")
-                result = agent.query(question)
+                result = await agent._query_async(question)
                 print("\n" + "-"*40)
                 print(result["answer"])
 
                 trace = result["trace"]
-                print(f"\n[Tokens: {trace.total_tokens}, Tool calls: {trace.total_tool_calls}, Cost: ${trace.total_cost_usd:.4f}]")
+                print(f"\n[Latency: {trace.latency_seconds:.1f}s, Tokens: {trace.total_tokens}, Tool calls: {trace.total_tool_calls}, Cost: ${trace.total_cost_usd:.4f}]")
+                if agent.enable_background_improve and _background_tasks:
+                    print("[Background improvement running...]")
                 print("-"*40 + "\n")
 
             except KeyboardInterrupt:
-                print("\nGoodbye!")
+                print("\nExiting (background tasks may still be running)...")
                 break
             except Exception as e:
                 print(f"\nError: {e}\n")
                 traceback.print_exc()
+
+
+def main():
+    """Entry point."""
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":

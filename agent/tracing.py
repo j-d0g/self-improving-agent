@@ -54,6 +54,11 @@ class ExecutionTrace:
     # Cost tracking
     total_cost_usd: float = 0.0
 
+    # Latency tracking
+    start_time: float = 0.0  # time.time() when query started
+    end_time: float = 0.0    # time.time() when query completed
+    latency_seconds: float = 0.0
+
     # Error tracking
     errors_encountered: list = field(default_factory=list)
     error_recovered: bool = False
@@ -69,6 +74,7 @@ class ExecutionTrace:
             "agent_version": self.agent_version,
             "query": self.query,
             "timestamp": self.timestamp,
+            "latency_seconds": round(self.latency_seconds, 2),
             "total_tokens": self.total_tokens,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -101,6 +107,8 @@ class AgentMetrics:
         total_output_tokens = sum(t.output_tokens for t in self.traces)
         total_tool_calls = sum(t.total_tool_calls for t in self.traces)
         total_cost = sum(t.total_cost_usd for t in self.traces)
+        total_latency = sum(t.latency_seconds for t in self.traces)
+        latencies = [t.latency_seconds for t in self.traces if t.latency_seconds > 0]
 
         return {
             "total_queries": total,
@@ -109,8 +117,12 @@ class AgentMetrics:
             "total_output_tokens": total_output_tokens,
             "total_tool_calls": total_tool_calls,
             "total_cost_usd": round(total_cost, 4),
+            "total_latency_seconds": round(total_latency, 2),
             "avg_tokens_per_query": round(total_tokens / total, 2),
             "avg_tool_calls_per_query": round(total_tool_calls / total, 2),
+            "avg_latency_seconds": round(total_latency / total, 2) if total > 0 else 0,
+            "min_latency_seconds": round(min(latencies), 2) if latencies else 0,
+            "max_latency_seconds": round(max(latencies), 2) if latencies else 0,
         }
 
     def save(self, path: str = "metrics.json"):
