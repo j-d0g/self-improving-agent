@@ -52,14 +52,14 @@ If you don't know something, say so. If data doesn't exist, report that. Never f
 
 ### 6. Write Session Log (MANDATORY)
 
-After completing the query, you MUST write a markdown file to `knowledge/learnings/` with the following structure.
+After completing the query, you MUST write a markdown file to `logs/sessions/` with the following structure.
 
-**Filename format:** `knowledge/learnings/<query_id>_<short-description>.md`
+**Filename format:** `logs/sessions/<query_id>_<short-description>.md`
 - Query ID: Use the ID provided in the prompt (e.g., `q01`, `q17`, `q23`)
 - Short description: lowercase, underscores, max 4 words (e.g., `gross_revenue_usa`, `operating_margin`)
-- Example: `knowledge/learnings/q01_gross_revenue_usa.md`, `knowledge/learnings/q17_operating_margin.md`
+- Example: `logs/sessions/q01_gross_revenue_usa.md`, `logs/sessions/q17_operating_margin.md`
 
-If no Query ID is provided, use `adhoc_YYYYMMDD` as the prefix.
+If no Query ID is provided, use `adhoc_YYYYMMDD_HHMMSS` as the prefix.
 
 ```markdown
 # Query Session Log

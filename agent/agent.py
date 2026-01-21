@@ -32,7 +32,7 @@ class FinancialAnalysisAgent:
         """Initialize the agent."""
         self.project_root = Path(__file__).parent
         self.dataset_path = self.project_root / dataset_path
-        self.traces_dir = self.project_root / "logs"
+        self.traces_dir = self.project_root / "logs" / "traces"
         self.log_traces = log_traces
 
         # Load system prompt from file

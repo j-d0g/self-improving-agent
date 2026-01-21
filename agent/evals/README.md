@@ -26,9 +26,7 @@ Each evaluation is a JSON array of objects with the following fields:
 - Edge cases (non-existent products, unavailable data)
 
 **Test set** focuses on:
-- Complex analysis (variance analysis, rolling averages)
-- Multi-dimensional queries (product-country-year combinations)
-- Pattern recognition (seasonality, outliers)
+- Difficult problems found through stress-testing claude swarms on random queries until they struggled.
 
 ## Running Evaluations
 

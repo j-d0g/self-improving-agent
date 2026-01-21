@@ -1,6 +1,6 @@
 # Financial Analysis Agent
 
-A coding agent that answers financial questions about P&L data using pandas. Features cross-session learning to improve over time.
+A coding agent that answers financial questions about P&L data using pandas. Features a complete self-improvement loop with evaluation and automated learning.
 
 ## Setup
 
@@ -9,84 +9,161 @@ A coding agent that answers financial questions about P&L data using pandas. Fea
 pip install -r requirements.txt
 
 # Set up environment
-echo "ANTHROPIC_API_KEY=your-key" > .env
-# Edit .env and add your actual ANTHROPIC_API_KEY
+cp .env.example .env  # or create .env file
+# Edit .env and add your ANTHROPIC_API_KEY
 ```
 
 ## Architecture
 
 ```
 agent/
-├── agent.py           # Core agent: agentic loop, tools, learning
-├── demo.py            # Demo script for basic agent capabilities
-├── learning_demo.py   # Demo for cross-session learning
-├── eval_runner.py     # Evaluation harness for running test queries
-├── data/
-│   └── FUN_company_pl_actuals_dataset.csv
-└── knowledge/
-    ├── schema.md           # Schema documentation
-    ├── examples.md         # Query patterns (agent learns here)
-    └── functions.py        # Reusable functions (agent learns here)
+├── agent.py              # Core financial analysis agent (Claude Code SDK)
+├── evaluator.py          # Evaluator agent (Python wrapper)
+├── orchestrator.py       # Automated evaluation orchestration
+├── eval_runner.py        # Runs evaluation queries
+├── demo.py               # Demo script
+├── tracing.py            # Shared tracing/metrics
+│
+├── .claude/agents/       # Subagent definitions (Claude Code SDK)
+│   ├── learner.md        # Query answering agent (haiku)
+│   ├── evaluator.md      # Session analysis agent (opus)
+│   └── improver.md       # Knowledge updater agent (sonnet)
+│
+├── knowledge/            # Curated knowledge base (updated by improver)
+│   ├── schema.md         # Dataset documentation
+│   ├── examples.md       # Query patterns
+│   └── functions.py      # Helper functions
+│
+├── logs/                 # All execution logs
+│   ├── sessions/         # Learner session logs (markdown)
+│   ├── evaluations/      # Evaluator judgments (markdown)
+│   ├── improvements/     # Improver reports (markdown)
+│   └── traces/           # Raw execution traces (JSON)
+│
+├── evals/                # Test sets
+│   ├── train.json
+│   └── test.json
+│
+├── prompts/              # System prompts (Python agent)
+│   ├── financial_agent.txt
+│   └── evaluator.txt
+│
+└── data/
+    └── FUN_company_pl_actuals_dataset.csv
 ```
 
-### Core Components
+## Self-Improvement Loop
 
-**Agent Loop** (`agent.py`)
-- Uses Claude API with tool calling
-- Tools: `read_file`, `execute_pandas`, `list_files`, `edit_file`
-- Sandboxed code execution for safety
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Agent     │────▶│ Eval Runner │────▶│  Evaluator  │
+│  (agent.py) │     │             │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘
+       ▲                                       │
+       │                                       │
+       └───────── knowledge/ updates ◀─────────┘
+```
 
-**Cross-Session Learning**
-- Agent writes learnings to `knowledge/` files via `edit_file` tool
-- New agent instances load these files and benefit from past sessions
-- Learning triggered when agent recovers from errors
+**Manual workflow:**
+1. **Agent** answers financial questions, logs traces
+2. **Eval Runner** runs test queries, compares against expected answers
+3. **Evaluator** analyzes results, identifies patterns, suggests/applies improvements
+4. **Knowledge files** get updated, improving future agent performance
 
-**Execution Metrics**
-- Tracks tokens, tool calls, errors, and learning events
-- Aggregated via `AgentMetrics` class
+**Automated workflow (Orchestrator):**
+```
+┌──────────────────────────────────────────────────────────┐
+│                    Orchestrator                          │
+│  ┌─────────┐    ┌───────────┐    ┌────────────────────┐ │
+│  │  Agent  │───▶│ Evaluator │───▶│ Knowledge Updates  │ │
+│  └─────────┘    └───────────┘    └────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+The orchestrator automates evaluation with multiple modes:
+- **inline**: Evaluate after every query (thorough but slow)
+- **batch**: Evaluate after N queries (balanced)
+- **background**: Queue evaluations asynchronously (fast responses)
 
 ## Usage
 
 ### Interactive Mode
 ```bash
-cd agent
 python agent.py
 ```
 
 ### Single Query
 ```bash
-cd agent
 python agent.py "What was the total revenue for Product A in Q1 2024?"
 ```
 
 ### Demo
 ```bash
-cd agent
-python demo.py           # Scripted demo
-python demo.py -i        # Interactive mode
+python demo.py
 ```
 
-### Cross-Session Learning Demo
+### Run Evaluations (Manual)
 ```bash
-cd agent
-python learning_demo.py
-```
-
-### Run Evaluations
-```bash
-cd agent
+# Run evaluation queries
 python eval_runner.py evals/train.json
-python eval_runner.py evals/test.json
+
+# Analyze results and get improvement suggestions
+python evaluator.py
+
+# Analyze and auto-apply improvements
+python evaluator.py --apply
+
+# Analyze recent execution traces
+python evaluator.py --traces 20
 ```
 
-## Tools
+### Automated Self-Improvement (Orchestrator)
+```bash
+# Interactive with batch evaluation (every 5 queries)
+python orchestrator.py
 
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read knowledge files, schema, learned patterns |
-| `execute_pandas` | Execute pandas code against the dataset (sandboxed) |
-| `list_files` | List files in a directory |
-| `edit_file` | Append to knowledge files (for learning persistence) |
+# Evaluate after every query
+python orchestrator.py --inline
+
+# Auto-apply improvements after evaluation
+python orchestrator.py --inline --auto
+
+# Background async evaluation (fast responses)
+python orchestrator.py --background
+
+# Custom batch size
+python orchestrator.py --batch 3
+
+# Single query with full automation
+python orchestrator.py --inline --auto "What was revenue in Q1 2024?"
+```
+
+## Components
+
+### Financial Analysis Agent (`agent.py`)
+- Uses Claude Code SDK with Read and Bash tools
+- Executes pandas code via shell commands
+- Reads knowledge files for context before answering
+- Logs execution traces for analysis
+
+### Evaluator Agent (`evaluator.py`)
+- Analyzes evaluation results (expected vs actual answers)
+- Identifies error patterns and inefficiencies
+- Suggests improvements to knowledge files
+- Can auto-apply improvements with `--apply` flag
+
+### Evaluation Runner (`eval_runner.py`)
+- Runs queries from evaluation files
+- Captures results with metrics (tokens, tool calls, cost)
+- Compares agent answers against expected answers
+
+### Orchestrator (`orchestrator.py`)
+- Wraps agent + evaluator for automated self-improvement
+- Multiple evaluation modes:
+  - `inline`: Evaluate every query immediately
+  - `batch`: Evaluate after N queries (default: 5)
+  - `background`: Async evaluation in separate thread
+- Optional auto-apply of improvements to knowledge files
 
 ## Dataset
 
@@ -96,15 +173,16 @@ The agent analyzes `FUN_company_pl_actuals_dataset.csv`:
 - **Years:** 2020-2024
 - **Metrics:** Revenue, COGS, OPEX, Other Income/Expenses
 
-See `knowledge/dataset_schema.md` for full schema.
+See `knowledge/schema.md` for full schema.
 
-## Learning System
+## Knowledge System
 
-When the agent encounters an error and recovers:
-1. It analyzes what went wrong
-2. Generalizes the fix for similar queries
-3. Persists the learning to knowledge files
+The agent improves through accumulated knowledge:
 
-Knowledge files:
-- `examples.md` - Query patterns with working code
-- `functions.py` - Reusable helper functions
+| File | Purpose |
+|------|---------|
+| `knowledge/schema.md` | Dataset column definitions, valid values |
+| `knowledge/examples.md` | Query patterns with working code |
+| `knowledge/learnings/` | Captured insights from tricky queries |
+
+The evaluator agent identifies gaps and can update these files to prevent repeated mistakes.
