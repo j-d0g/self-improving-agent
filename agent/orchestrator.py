@@ -14,9 +14,7 @@ from dataclasses import dataclass, field
 import threading
 import queue
 
-# Load .env file if it exists
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
+# Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
 
 from agent import FinancialAnalysisAgent
 from evaluator import EvaluatorAgent
