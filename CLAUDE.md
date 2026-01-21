@@ -39,5 +39,5 @@ python eval_runner.py evals/train.json
 
 `FUN_company_pl_actuals_dataset.csv` - P&L actuals for fictional company
 - Products: A, B, C, D (no others exist)
-- Countries: Australia, Canada, Germany, Japan, UK, US
+- Countries: Australia, Canada, Germany, Japan, United Kingdom, United States
 - Years: 2020-2024

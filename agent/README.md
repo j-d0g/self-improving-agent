@@ -9,8 +9,8 @@ A coding agent that answers financial questions about P&L data using pandas. Fea
 pip install -r requirements.txt
 
 # Set up environment
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+echo "ANTHROPIC_API_KEY=your-key" > .env
+# Edit .env and add your actual ANTHROPIC_API_KEY
 ```
 
 ## Architecture
@@ -24,9 +24,8 @@ agent/
 ├── data/
 │   └── FUN_company_pl_actuals_dataset.csv
 └── knowledge/
-    ├── dataset_schema.md   # Schema documentation
+    ├── schema.md           # Schema documentation
     ├── examples.md         # Query patterns (agent learns here)
-    ├── improvements.md     # Tips and pitfalls (agent learns here)
     └── functions.py        # Reusable functions (agent learns here)
 ```
 
@@ -108,5 +107,4 @@ When the agent encounters an error and recovers:
 
 Knowledge files:
 - `examples.md` - Query patterns with working code
-- `improvements.md` - Tips and common pitfalls
 - `functions.py` - Reusable helper functions
