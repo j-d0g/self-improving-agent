@@ -77,6 +77,10 @@ class BenchmarkRun:
     avg_tokens_per_query: float = 0.0
     avg_tool_calls_per_query: float = 0.0
     
+    # Latency metrics
+    total_latency_seconds: float = 0.0
+    avg_latency_seconds: float = 0.0
+    
     # Accuracy metrics (if evaluator ran)
     avg_accuracy: Optional[float] = None
     
@@ -195,10 +199,11 @@ class BenchmarkSuite:
                     "agent_answer": result["answer"],
                     "tokens": trace.total_tokens,
                     "tool_calls": trace.total_tool_calls,
+                    "latency_seconds": getattr(trace, 'latency_seconds', 0.0),
                     "status": "success",
                     "error": None
                 })
-                print(f"      ✓ {trace.total_tokens} tokens, {trace.total_tool_calls} tools")
+                print(f"      ✓ {trace.total_tokens} tokens, {trace.total_tool_calls} tools, {getattr(trace, 'latency_seconds', 0):.1f}s")
                 
             except Exception as e:
                 results.append({
@@ -207,6 +212,7 @@ class BenchmarkSuite:
                     "agent_answer": None,
                     "tokens": 0,
                     "tool_calls": 0,
+                    "latency_seconds": 0.0,
                     "status": "error",
                     "error": str(e)
                 })
@@ -281,8 +287,10 @@ class BenchmarkSuite:
         if successful:
             run.total_tokens = sum(r["tokens"] for r in successful)
             run.total_tool_calls = sum(r["tool_calls"] for r in successful)
+            run.total_latency_seconds = sum(r.get("latency_seconds", 0) for r in successful)
             run.avg_tokens_per_query = run.total_tokens / len(successful)
             run.avg_tool_calls_per_query = run.total_tool_calls / len(successful)
+            run.avg_latency_seconds = run.total_latency_seconds / len(successful)
         
         # Save run
         run_path = BENCHMARKS_DIR / "runs" / f"{run_id}.json"
@@ -299,6 +307,7 @@ class BenchmarkSuite:
         print(f"  Total Tokens: {run.total_tokens:,}")
         print(f"  Avg Tokens/Query: {run.avg_tokens_per_query:,.1f}")
         print(f"  Avg Tool Calls/Query: {run.avg_tool_calls_per_query:.1f}")
+        print(f"  Avg Latency: {run.avg_latency_seconds:.1f}s")
         print(f"\n  Saved to: {run_path}")
         
         return run
@@ -397,7 +406,8 @@ class BenchmarkSuite:
                         "queries": data["total_queries"],
                         "success_rate": f"{data['successful_queries']}/{data['total_queries']}",
                         "avg_tokens": round(data["avg_tokens_per_query"], 1),
-                        "avg_tools": round(data["avg_tool_calls_per_query"], 1)
+                        "avg_tools": round(data["avg_tool_calls_per_query"], 1),
+                        "avg_latency": round(data.get("avg_latency_seconds", 0), 1)
                     })
         return runs
     
@@ -421,6 +431,7 @@ class BenchmarkSuite:
         timestamps = [r["timestamp"][:16].replace("T", " ") for r in runs]
         tokens = [r["avg_tokens_per_query"] for r in runs]
         tools = [r["avg_tool_calls_per_query"] for r in runs]
+        latencies = [r.get("avg_latency_seconds", 0) for r in runs]
         success_rates = [r["successful_queries"] / r["total_queries"] * 100 if r["total_queries"] else 0 for r in runs]
         
         # Calculate improvements from first to last
@@ -430,8 +441,10 @@ class BenchmarkSuite:
                                 / first["avg_tokens_per_query"] * 100) if first["avg_tokens_per_query"] else 0
             tool_improvement = ((first["avg_tool_calls_per_query"] - last["avg_tool_calls_per_query"])
                                / first["avg_tool_calls_per_query"] * 100) if first["avg_tool_calls_per_query"] else 0
+            latency_improvement = ((first.get("avg_latency_seconds", 0) - last.get("avg_latency_seconds", 0))
+                                  / first.get("avg_latency_seconds", 1) * 100) if first.get("avg_latency_seconds", 0) else 0
         else:
-            token_improvement = tool_improvement = 0
+            token_improvement = tool_improvement = latency_improvement = 0
         
         html = f"""<!DOCTYPE html>
 <html lang="en">
