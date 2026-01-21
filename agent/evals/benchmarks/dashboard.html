@@ -45,12 +45,18 @@
         
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 1rem;
             margin-bottom: 2rem;
         }
         
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
+            .metrics-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
+        @media (max-width: 600px) {
             .metrics-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
@@ -97,12 +103,12 @@
         
         .charts-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 1rem;
             margin-bottom: 2rem;
         }
         
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
             .charts-grid {
                 grid-template-columns: 1fr;
             }
@@ -234,6 +240,14 @@
             </div>
             
             <div class="metric-card">
+                <div class="metric-label">Avg Latency</div>
+                <div class="metric-value">15.0s</div>
+                <div class="metric-change positive">
+                    +62.5% vs baseline
+                </div>
+            </div>
+            
+            <div class="metric-card">
                 <div class="metric-label">Success Rate</div>
                 <div class="metric-value">100%</div>
                 <div class="metric-change neutral">Latest run</div>
@@ -260,6 +274,13 @@
                     <canvas id="toolsChart"></canvas>
                 </div>
             </div>
+            
+            <div class="chart-card">
+                <div class="chart-title">Latency (seconds)</div>
+                <div class="chart-container">
+                    <canvas id="latencyChart"></canvas>
+                </div>
+            </div>
         </div>
         
         <div class="runs-table">
@@ -274,6 +295,7 @@
                         <th>Success</th>
                         <th>Tokens</th>
                         <th>Tools</th>
+                        <th>Latency</th>
                         <th>Change</th>
                     </tr>
                 </thead>
@@ -287,6 +309,7 @@
                         <td>8/8</td>
                         <td>25,000</td>
                         <td>5.0</td>
+                        <td>15.0s</td>
                         <td class="trend baseline">
                             —
                         </td>
@@ -300,6 +323,7 @@
                         <td>8/8</td>
                         <td>30,000</td>
                         <td>6.0</td>
+                        <td>21.0s</td>
                         <td class="trend improved">
                             -40.0%
                         </td>
@@ -313,6 +337,7 @@
                         <td>8/8</td>
                         <td>35,000</td>
                         <td>7.0</td>
+                        <td>28.0s</td>
                         <td class="trend baseline">
                             +0.0%
                         </td>
@@ -326,6 +351,7 @@
                         <td>7/8</td>
                         <td>50,000</td>
                         <td>10.0</td>
+                        <td>40.0s</td>
                         <td class="trend regressed">
                             +66.7%
                         </td>
@@ -336,7 +362,7 @@
         </div>
         
         <div class="footer">
-            Generated 2026-01-21 04:41:54
+            Generated 2026-01-21 06:09:14
         </div>
     </div>
     
@@ -389,6 +415,24 @@
                     fill: true,
                     tension: 0.3,
                     pointBackgroundColor: '#6c757d',
+                    pointRadius: 3,
+                    borderWidth: 2
+                }]
+            },
+            options: chartOptions
+        });
+        
+        new Chart(document.getElementById('latencyChart'), {
+            type: 'line',
+            data: {
+                labels: ["01-20 10:00", "01-20 14:00", "01-21 09:00", "01-21 15:00"],
+                datasets: [{
+                    data: [40.0, 28.0, 21.0, 15.0],
+                    borderColor: '#198754',
+                    backgroundColor: 'rgba(25, 135, 84, 0.05)',
+                    fill: true,
+                    tension: 0.3,
+                    pointBackgroundColor: '#198754',
                     pointRadius: 3,
                     borderWidth: 2
                 }]

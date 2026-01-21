@@ -1,5 +1,5 @@
 """
-Financial Analysis Agent
+Learner Agent
 
 A coding agent that answers financial questions about P&L data using the Claude Code SDK.
 Uses SDK's built-in tools (Bash, Read) for execution.
@@ -52,8 +52,8 @@ async def wait_for_background_tasks(timeout: float = 30.0) -> None:
         logger.warning(f"Background tasks did not complete within {timeout}s")
 
 
-class FinancialAnalysisAgent:
-    """Financial analysis agent with full logging and background improvement."""
+class LearnerAgent:
+    """Learner agent with full logging and background improvement."""
 
     def __init__(
         self,
@@ -70,7 +70,7 @@ class FinancialAnalysisAgent:
         self.enable_background_improve = enable_background_improve
 
         # Load system prompt from file
-        self.system_prompt = load_prompt("financial_agent.txt")
+        self.system_prompt = load_prompt("learner.txt")
         self.improver_prompt = load_prompt("improver.txt")
 
         # Verify dataset exists
@@ -207,7 +207,7 @@ async def main_async():
     import sys
     import traceback
 
-    agent = FinancialAnalysisAgent()
+    agent = LearnerAgent()
 
     if len(sys.argv) > 1:
         question = " ".join(sys.argv[1:])
@@ -232,7 +232,7 @@ async def main_async():
             await wait_for_background_tasks(timeout=30.0)
             print("Done.")
     else:
-        print("Financial Analysis Agent (with background improvement)")
+        print("Learner Agent (with background improvement)")
         print("="*50)
         print("Workflow: Query → Answer → Background Improvement")
         print()

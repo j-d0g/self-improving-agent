@@ -45,7 +45,7 @@ agent/
 │   └── test.json
 │
 ├── prompts/              # System prompts (Python agent)
-│   ├── financial_agent.txt
+│   ├── learner.txt
 │   └── evaluator.txt
 │
 └── data/
