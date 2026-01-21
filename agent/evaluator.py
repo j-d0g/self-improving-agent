@@ -10,12 +10,10 @@ import asyncio
 import json
 from datetime import datetime
 
-# Load .env file if it exists
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
+# Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
 
 from claude_code_sdk import (
-    query,
+    query as sdk_query,
     ClaudeCodeOptions,
     AssistantMessage,
     ResultMessage,
@@ -34,7 +32,7 @@ class EvaluatorAgent:
         """Initialize the evaluator agent."""
         self.project_root = Path(__file__).parent
         self.logs_dir = self.project_root / "logs"
-        self.learnings_dir = self.project_root / "learnings"
+        self.results_dir = self.project_root / "results"
         self.knowledge_dir = self.project_root / "knowledge"
 
         # Load system prompt
@@ -60,9 +58,9 @@ class EvaluatorAgent:
         """Async implementation of evaluate."""
         # Find evaluation file
         if eval_file is None:
-            eval_files = sorted(self.learnings_dir.glob("eval_*.json"), reverse=True)
+            eval_files = sorted(self.results_dir.glob("eval_*.json"), reverse=True)
             if not eval_files:
-                return {"error": "No evaluation files found in learnings/"}
+                return {"error": "No evaluation files found in results/"}
             eval_file = str(eval_files[0])
 
         trace = ExecutionTrace(query=f"Evaluate: {eval_file}")
@@ -80,7 +78,7 @@ class EvaluatorAgent:
             permission_mode="acceptEdits" if apply_improvements else "bypassPermissions"
         )
 
-        async for message in query(prompt=prompt, options=options):
+        async for message in sdk_query(prompt=prompt, options=options):
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
@@ -152,7 +150,7 @@ Focus on:
             }
         }
 
-        report_path = self.learnings_dir / f"evaluation_report_{timestamp}.json"
+        report_path = self.results_dir / f"evaluation_report_{timestamp}.json"
         with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
 
@@ -172,7 +170,7 @@ Focus on:
 
     async def _analyze_traces_async(self, limit: int) -> dict:
         """Async implementation of trace analysis."""
-        trace_files = sorted(self.logs_dir.glob("trace_*.json"), reverse=True)[:limit]
+        trace_files = sorted((self.logs_dir / "traces").glob("trace_*.json"), reverse=True)[:limit]
 
         if not trace_files:
             return {"error": "No trace files found"}
@@ -203,7 +201,7 @@ Provide actionable suggestions to improve the agent's knowledge base.
             permission_mode="bypassPermissions"
         )
 
-        async for message in query(prompt=prompt, options=options):
+        async for message in sdk_query(prompt=prompt, options=options):
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
@@ -245,7 +243,7 @@ Usage:
   python evaluator.py --traces [N]        Analyze N recent traces (default: 10)
 
 Examples:
-  python evaluator.py learnings/eval_20260121_005409.json
+  python evaluator.py results/eval_20260121_005409.json
   python evaluator.py --apply
   python evaluator.py --traces 20
 """)

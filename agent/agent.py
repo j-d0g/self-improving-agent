@@ -8,12 +8,11 @@ Uses SDK's built-in tools (Bash, Read) for execution.
 from pathlib import Path
 import asyncio
 
-# Load .env file if it exists
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
+# Note: Claude Code SDK uses Claude CLI authentication, not ANTHROPIC_API_KEY
+# Don't load .env as it may conflict with CLI auth
 
 from claude_code_sdk import (
-    query,
+    query as sdk_query,
     ClaudeCodeOptions,
     AssistantMessage,
     ResultMessage,
@@ -63,10 +62,9 @@ class FinancialAnalysisAgent:
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
             allowed_tools=["Read", "Bash"],
-            permission_mode="acceptEdits"
         )
 
-        async for message in query(prompt=question, options=options):
+        async for message in sdk_query(prompt=question, options=options):
             # Handle AssistantMessage (contains text and tool use blocks)
             if isinstance(message, AssistantMessage):
                 for block in message.content:
