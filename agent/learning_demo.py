@@ -74,7 +74,6 @@ that knowledge in future sessions.
     # Capture initial state of knowledge files
     knowledge_files = [
         "knowledge/examples.md",
-        "knowledge/improvements.md",
         "knowledge/functions.py"
     ]
     before_knowledge = {f: read_knowledge_file(f) for f in knowledge_files}
@@ -95,9 +94,7 @@ that knowledge in future sessions.
     trace1 = result1["trace"]
     print(f"\nMetrics:")
     print(f"  Tool calls: {trace1.total_tool_calls}")
-    print(f"  Errors encountered: {len(trace1.errors_encountered)}")
-    print(f"  Error recovered: {trace1.error_recovered}")
-    print(f"  Learning triggered: {trace1.learning_triggered}")
+    print(f"  Tokens used: {trace1.total_tokens}")
 
     # Check for changes in knowledge files
     after_knowledge_s1 = {f: read_knowledge_file(f) for f in knowledge_files}
@@ -119,8 +116,7 @@ that knowledge in future sessions.
     trace2 = result2["trace"]
     print(f"\nMetrics:")
     print(f"  Tool calls: {trace2.total_tool_calls}")
-    print(f"  Errors encountered: {len(trace2.errors_encountered)}")
-    print(f"  Error recovered: {trace2.error_recovered}")
+    print(f"  Tokens used: {trace2.total_tokens}")
 
     # Show knowledge file changes
     after_knowledge_s2 = {f: read_knowledge_file(f) for f in knowledge_files}

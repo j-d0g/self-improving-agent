@@ -5,11 +5,9 @@ Demo Script for Financial Analysis Agent
 This script demonstrates the agent's ability to answer financial questions.
 """
 
-import os
 import sys
 from pathlib import Path
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from agent import FinancialAnalysisAgent
@@ -29,54 +27,6 @@ def print_subheader(text: str):
     print("-" * 40)
 
 
-def interactive_mode(agent: FinancialAnalysisAgent):
-    """Run in interactive mode."""
-    print_header("Interactive Mode")
-    print("""
-Commands:
-  - Type your question to ask the agent
-  - 'metrics' - Show session metrics
-  - 'quit' - Exit the demo
-""")
-
-    while True:
-        try:
-            user_input = input("\nYour question: ").strip()
-
-            if not user_input:
-                continue
-            elif user_input.lower() == "quit":
-                if agent.metrics.traces:
-                    print_subheader("Session Metrics")
-                    for k, v in agent.metrics.compute().items():
-                        print(f"  {k}: {v}")
-                print("Goodbye!")
-                break
-            elif user_input.lower() == "metrics":
-                if agent.metrics.traces:
-                    print_subheader("Session Metrics")
-                    for k, v in agent.metrics.compute().items():
-                        print(f"  {k}: {v}")
-                else:
-                    print("No queries yet.")
-            else:
-                print("Thinking...", end=" ", flush=True)
-                result = agent.query(user_input)
-                print("Done!\n")
-                print("Answer:")
-                print(result["answer"])
-
-                # Show trace info
-                trace = result["trace"]
-                print(f"\n[Tokens: {trace.total_tokens}, Tool calls: {trace.total_tool_calls}]")
-
-        except KeyboardInterrupt:
-            print("\n\nGoodbye!")
-            break
-        except Exception as e:
-            print(f"\nError: {e}")
-
-
 def scripted_demo():
     """Run a scripted demo showing agent capabilities."""
     print_header("FINANCIAL ANALYSIS AGENT DEMO")
@@ -84,10 +34,9 @@ def scripted_demo():
 This demo shows the agent answering financial questions about P&L data.
 
 The agent:
-1. Reads the dataset schema to understand column definitions
-2. Generates pandas code to answer your question
-3. Validates results with programmatic verification
-4. Recovers from errors automatically
+1. Reads knowledge files to understand the data schema
+2. Generates and executes pandas code via Bash
+3. Validates results and provides clear answers
 """)
 
     agent = FinancialAnalysisAgent()
@@ -117,31 +66,22 @@ The agent:
     for k, v in agent.metrics.compute().items():
         print(f"  {k}: {v}")
 
-    print("\nTo explore further, run: python demo.py -i")
+    print("\nTo explore further, run: python agent.py")
 
 
 def main():
     """Main entry point."""
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--interactive" or sys.argv[1] == "-i":
-            agent = FinancialAnalysisAgent()
-            interactive_mode(agent)
-        elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
-            print("""
+    if len(sys.argv) > 1 and (sys.argv[1] == "--help" or sys.argv[1] == "-h"):
+        print("""
 Financial Analysis Agent Demo
 
 Usage:
   python demo.py              Run the scripted demo
-  python demo.py -i           Interactive mode
-  python demo.py --help       Show this help message
-  python demo.py <question>   Ask a single question
+
+For interactive mode or single questions, use:
+  python agent.py             Interactive mode
+  python agent.py "question"  Ask a single question
 """)
-        else:
-            # Treat as a question
-            agent = FinancialAnalysisAgent()
-            question = " ".join(sys.argv[1:])
-            result = agent.query(question)
-            print(result["answer"])
     else:
         scripted_demo()
 

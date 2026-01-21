@@ -61,10 +61,6 @@ def run_evaluation(eval_path: str, output_path: str = None) -> dict:
                     "input_tokens": trace.input_tokens,
                     "output_tokens": trace.output_tokens,
                     "tool_calls": trace.total_tool_calls,
-                    "errors_encountered": trace.errors_encountered,
-                    "error_recovered": trace.error_recovered,
-                    "total_attempts": trace.total_attempts,
-                    "learning_triggered": trace.learning_triggered,
                 },
                 "status": "success"
             })

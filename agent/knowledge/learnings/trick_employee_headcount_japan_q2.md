@@ -100,7 +100,7 @@ High - I comprehensively verified that no employee count data exists in the data
   - What line items exist vs. what the user is asking for
 
 **Documentation gaps:**
-- No schema documentation was consulted (though knowledge/dataset_schema.md may have existed previously, it's been deleted according to git status)
+- No schema documentation was consulted (though knowledge/schema.md may have existed previously, it's been deleted according to git status)
 - Would have been helpful to have quick reference for:
   - Column names and data types
   - Available FSLine Statement L2 values
