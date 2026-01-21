@@ -13,7 +13,7 @@ This directory contains the **curated knowledge** that the learner agent uses to
 ## How Knowledge Evolves
 
 ```
-1. Learner encounters an error or inefficiency
+1. Learner encounters an error or inefficiency or error
            │
            ▼
 2. Learner logs session to logs/sessions/
@@ -40,14 +40,13 @@ This directory contains the **curated knowledge** that the learner agent uses to
 - Document gotchas (e.g., "Headcount Expenses" is $ amount, not employee count)
 
 ### examples.md
-- One section per query pattern
+- One template per query pattern
 - Include: Query, Interpretation, Working Code, Common Mistakes
 - Prioritize patterns that caused errors or inefficiency
+- Use structured XML tags to document
 
 ### functions.py
-- Only add functions used by 2+ queries
 - Include docstrings with usage examples
-- Keep dependencies minimal (pandas only)
 
 ## Do NOT Put Here
 

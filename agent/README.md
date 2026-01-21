@@ -140,7 +140,7 @@ python orchestrator.py --inline --auto "What was revenue in Q1 2024?"
 
 ## Components
 
-### Financial Analysis Agent (`agent.py`)
+### Learning Agent (`agent.py`)
 - Uses Claude Code SDK with Read and Bash tools
 - Executes pandas code via shell commands
 - Reads knowledge files for context before answering

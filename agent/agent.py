@@ -25,9 +25,11 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
     ToolUseBlock,
+    ToolResultBlock,
+    ThinkingBlock,
 )
 
-from tracing import ExecutionTrace, AgentMetrics
+from tracing import ExecutionTrace, SessionTrace, AgentMetrics
 from prompts import load_prompt
 
 # Configure logging for background tasks
@@ -79,9 +81,16 @@ class LearnerAgent:
 
         # Metrics tracking
         self.metrics = AgentMetrics()
+        self.session = SessionTrace()  # Session-level trace for full conversation
 
         if self.log_traces:
             self.traces_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_session(self) -> str | None:
+        """Save the session trace (call when conversation ends)."""
+        if self.log_traces and self.session.queries:
+            return self.session.save(self.traces_dir)
+        return None
 
     def query(self, question: str) -> dict:
         """Process a user question through the agent loop."""
@@ -136,8 +145,9 @@ Only apply improvements if they are actionable and safe."""
         """Async implementation of query with multi-turn support."""
         trace = ExecutionTrace(query=question)
         trace.start_time = time.time()
-        current_turn = {"thinking": "", "tool_calls": []}
+        current_turn = None  # Created fresh for each AssistantMessage
         final_answer = ""
+        pending_tool_calls = {}  # Track tool calls by id for matching with results
 
         options = ClaudeAgentOptions(
             max_turns=20,
@@ -149,18 +159,46 @@ Only apply improvements if they are actionable and safe."""
         async with ClaudeSDKClient(options=options) as client:
             await client.query(question)
             async for message in client.receive_response():
-                # Handle AssistantMessage (contains text and tool use blocks)
+                # Handle AssistantMessage - each one is a new turn
                 if isinstance(message, AssistantMessage):
+                    # Save previous turn if exists
+                    if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
+                        current_turn["thinking"] = current_turn["thinking"].strip()
+                        trace.turns.append(current_turn)
+
+                    # Start new turn
+                    current_turn = {"thinking": "", "tool_calls": []}
+
                     for block in message.content:
-                        if isinstance(block, TextBlock):
+                        if isinstance(block, ThinkingBlock):
+                            current_turn["thinking"] += block.text + "\n"
+                        elif isinstance(block, TextBlock):
                             current_turn["thinking"] += block.text + "\n"
                             final_answer = block.text
                         elif isinstance(block, ToolUseBlock):
                             trace.total_tool_calls += 1
-                            current_turn["tool_calls"].append({
+                            tool_call = {
                                 "tool": block.name,
-                                "input": str(block.input)[:500],  # Truncate long inputs
-                            })
+                                "input": block.input,
+                                "output": None,  # Will be filled when result arrives
+                            }
+                            current_turn["tool_calls"].append(tool_call)
+                            tool_id = getattr(block, 'id', None)
+                            if tool_id:
+                                pending_tool_calls[tool_id] = tool_call
+                        elif isinstance(block, ToolResultBlock):
+                            # Match output to its tool call
+                            tool_id = getattr(block, 'tool_use_id', None)
+                            if tool_id and tool_id in pending_tool_calls:
+                                # Extract output as string
+                                output = block.content
+                                if isinstance(output, list):
+                                    # If content is list of blocks, extract text
+                                    output = "\n".join(
+                                        str(b.get("text", b)) if isinstance(b, dict) else str(b)
+                                        for b in output
+                                    )
+                                pending_tool_calls[tool_id]["output"] = output
 
                 # Handle ResultMessage (contains usage stats)
                 elif isinstance(message, ResultMessage):
@@ -171,20 +209,19 @@ Only apply improvements if they are actionable and safe."""
                     if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
                         trace.total_cost_usd = message.total_cost_usd
 
-        # Finalize turn and record latency
-        current_turn["thinking"] = current_turn["thinking"].strip()
-        if current_turn["thinking"] or current_turn["tool_calls"]:
+        # Finalize last turn
+        if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
+            current_turn["thinking"] = current_turn["thinking"].strip()
             trace.turns.append(current_turn)
 
         trace.end_time = time.time()
         trace.latency_seconds = trace.end_time - trace.start_time
         trace.final_answer = final_answer
 
-        # Save trace
+        # Add to metrics and session (session is saved on session end, not per-query)
         self.metrics.add_trace(trace)
-        log_path = None
-        if self.log_traces:
-            log_path = self.metrics.save_trace(trace, self.traces_dir)
+        self.session.add_query(trace)
+        log_path = None  # Session will be saved via save_session() when conversation ends
 
         # Trigger background improvement (deterministic: always after learner completes)
         if self.enable_background_improve:
@@ -231,6 +268,11 @@ async def main_async():
             print("\nWaiting for background improvement...")
             await wait_for_background_tasks(timeout=30.0)
             print("Done.")
+
+        # Save session trace
+        session_path = agent.save_session()
+        if session_path:
+            print(f"Session trace saved: {session_path}")
     else:
         print("Learner Agent (with background improvement)")
         print("="*50)
@@ -257,6 +299,10 @@ async def main_async():
                         print("SESSION METRICS:")
                         for k, v in agent.metrics.compute().items():
                             print(f"  {k}: {v}")
+                    # Save full session trace
+                    session_path = agent.save_session()
+                    if session_path:
+                        print(f"\nSession trace saved: {session_path}")
                     break
                 if question.lower() == "metrics":
                     if agent.metrics.traces:
@@ -287,7 +333,11 @@ async def main_async():
                 print("-"*40 + "\n")
 
             except KeyboardInterrupt:
-                print("\nExiting (background tasks may still be running)...")
+                print("\nExiting...")
+                # Save session trace on interrupt too
+                session_path = agent.save_session()
+                if session_path:
+                    print(f"Session trace saved: {session_path}")
                 break
             except Exception as e:
                 print(f"\nError: {e}\n")

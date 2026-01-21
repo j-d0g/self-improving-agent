@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-__all__ = ["get_agent_version", "ExecutionTrace", "AgentMetrics"]
+__all__ = ["get_agent_version", "ExecutionTrace", "SessionTrace", "AgentMetrics"]
 
 
 def get_agent_version() -> dict:
@@ -70,23 +70,72 @@ class ExecutionTrace:
     final_answer: str = ""
 
     def to_dict(self) -> dict:
+        """Serialize trace to dict (clean format for logs)."""
         return {
             "agent_version": self.agent_version,
             "query": self.query,
             "timestamp": self.timestamp,
-            "latency_seconds": round(self.latency_seconds, 2),
             "total_tokens": self.total_tokens,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
-            "total_cost_usd": self.total_cost_usd,
             "total_tool_calls": self.total_tool_calls,
-            "errors_encountered": self.errors_encountered,
-            "error_recovered": self.error_recovered,
-            "learning_triggered": self.learning_triggered,
-            "total_attempts": self.total_attempts,
             "turns": self.turns,
             "final_answer": self.final_answer,
         }
+
+
+@dataclass
+class SessionTrace:
+    """Tracks an entire conversation session (multiple queries)."""
+    session_id: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S"))
+    start_time: str = field(default_factory=lambda: datetime.now().isoformat())
+    agent_version: dict = field(default_factory=get_agent_version)
+
+    # All queries in this session
+    queries: list[ExecutionTrace] = field(default_factory=list)
+
+    # Aggregated metrics
+    end_time: str = ""
+    total_latency_seconds: float = 0.0
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    total_tool_calls: int = 0
+
+    def add_query(self, trace: ExecutionTrace):
+        """Add a query trace to the session."""
+        self.queries.append(trace)
+        self.total_latency_seconds += trace.latency_seconds
+        self.total_tokens += trace.total_tokens
+        self.total_cost_usd += trace.total_cost_usd
+        self.total_tool_calls += trace.total_tool_calls
+
+    def finalize(self):
+        """Finalize session when ending."""
+        self.end_time = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id,
+            "agent_version": self.agent_version,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "total_queries": len(self.queries),
+            "total_latency_seconds": round(self.total_latency_seconds, 2),
+            "total_tokens": self.total_tokens,
+            "total_cost_usd": round(self.total_cost_usd, 4),
+            "total_tool_calls": self.total_tool_calls,
+            "queries": [q.to_dict() for q in self.queries],
+        }
+
+    def save(self, traces_dir: Path) -> str:
+        """Save the session trace to a file."""
+        self.finalize()
+        traces_dir.mkdir(exist_ok=True)
+        filename = f"session_{self.session_id}.json"
+        filepath = traces_dir / filename
+        with open(filepath, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        return str(filepath)
 
 
 @dataclass
