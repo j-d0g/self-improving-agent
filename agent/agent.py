@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 _background_tasks: set[asyncio.Task] = set()
 
 
-async def wait_for_background_tasks(timeout: float = 30.0) -> None:
+async def wait_for_background_tasks(timeout: float = 60.0) -> None:
     """Wait for all background tasks to complete."""
     if not _background_tasks:
         return
@@ -126,9 +126,12 @@ class LearnerAgent:
                 allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash"],
             )
 
-            prompt = f"""Read the session log at `{session_log_path}` and apply any improvements listed in the ## Improvements section.
+            prompt = f"""Read the reflection log at `{session_log_path}`.
 
-Only apply improvements that are actionable. Mark completed items with [x]."""
+Look for the <suggested_improvements> section. Apply any actionable improvements to the appropriate knowledge file:
+- knowledge/schema.md — for data structure, column definitions, valid values
+- knowledge/examples.md — for query patterns and working code
+- knowledge/functions.py — for reusable helper functions"""
 
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
@@ -310,7 +313,7 @@ async def main_async():
         # Wait for background improvement
         if _background_tasks:
             print("\nWaiting for background improvement...")
-            await wait_for_background_tasks(timeout=30.0)
+            await wait_for_background_tasks(timeout=60.0)
             print("Done.")
 
         # Save session trace
@@ -337,7 +340,7 @@ async def main_async():
                     # Wait for background tasks
                     if _background_tasks:
                         print("\nWaiting for background tasks...")
-                        await wait_for_background_tasks(timeout=10.0)
+                        await wait_for_background_tasks(timeout=30.0)
                     if agent.metrics.traces:
                         print("\n" + "="*40)
                         print("SESSION METRICS:")

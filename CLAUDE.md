@@ -50,8 +50,7 @@ python evals/benchmark.py compare <run1> <run2>
 
 | File | Purpose |
 |------|---------|
-| `agent/agent.py` | Core LearnerAgent using Agent SDK |
-| `agent/improver.py` | ImproverAgent that updates knowledge files |
+| `agent/agent.py` | Core LearnerAgent + background improver |
 | `agent/tracing.py` | ExecutionTrace, SessionTrace, metrics |
 | `agent/evaluate.py` | Runs train/test evaluation sets |
 | `agent/evals/benchmark.py` | Performance tracking with visualizations |
@@ -72,10 +71,8 @@ The improver updates these based on learner reflection logs.
 
 ```
 logs/
-├── sessions/      # Learner output (markdown with XML tags)
-├── reflections/   # Self-reflection logs from sessions
-├── improvements/  # Improver reports
-└── traces/        # Raw JSON execution traces
+├── reflections/   # Self-reflection logs (input to improver)
+└── sessions/      # Session traces (JSON)
 ```
 
 ## Dataset
@@ -90,7 +87,7 @@ logs/
 
 The Python agents (not Claude Code CLI):
 - **Learner** (Haiku) - `agent/agent.py` with `prompts/learner.txt`
-- **Improver** (Sonnet) - `agent/improver.py` with `prompts/improver.txt`
+- **Improver** (Sonnet) - background task in `agent/agent.py` with `prompts/improver.txt`
 
 These read `agent/CLAUDE.md` as their working memory via explicit file reads in their system prompts.
 

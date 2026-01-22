@@ -78,8 +78,7 @@ python evals/benchmark.py compare <run1> <run2>
 ```
 agent/
 ├── CLAUDE.md                # Agent working memory (read via system prompt)
-├── agent.py                 # Learner agent implementation (Agent SDK)
-├── improver.py              # Updates knowledge files from reflections
+├── agent.py                 # Learner agent + background improver (Agent SDK)
 ├── evaluate.py              # Runs train/test evaluations
 ├── tracing.py               # Execution traces and metrics
 ├── prompts/
@@ -96,9 +95,8 @@ agent/
 │   ├── examples.md          # Query patterns
 │   └── functions.py         # Reusable helpers
 └── logs/
-    ├── reflections/         # Learner reflection logs
-    ├── improvements/        # Improver reports
-    └── traces/              # Raw JSON execution traces
+    ├── reflections/         # Learner reflection logs (input to improver)
+    └── sessions/            # Session traces (JSON)
 ```
 
 ## How Learning Works
@@ -155,9 +153,9 @@ The improver updates these based on learner reflection logs.
 - "Calculate year-over-year OPEX growth between 2022 and 2023"
 - "What was revenue for Product E?" *(trick question - doesn't exist)*
 
-## Trace Logging
+## Session Logging
 
-Every session logs a JSON trace to `logs/traces/` with:
+Every session logs a JSON trace to `logs/sessions/` with:
 - Session metadata (timestamps, totals)
 - Agent version (git commit)
 - Per-query details with turn history (thinking + tool calls)
