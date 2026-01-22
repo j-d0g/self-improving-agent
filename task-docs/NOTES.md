@@ -2,10 +2,10 @@
 
 > This document contains personal notes, questions, ideas, and talking points gathered during the scoping and development process.
 
-**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [ARCHITECTURE](ARCHITECTURE.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
+**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [DESIGN](DESIGN.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
 
 **Previous:** [TASK.md](TASK.md) — Original requirements
-**Next:** [ARCHITECTURE.md](ARCHITECTURE.md) — Early design exploration (see [CLAUDE.md](../CLAUDE.md) for final architecture)
+**Next:** [DESIGN.md](DESIGN.md) — Detailed system design
 
 ---
 
@@ -47,7 +47,6 @@
 - ✅ **Resolved** — Decision made, linked to where documented
 - ⚠️ **Deprioritized** — Considered but not implemented (usually time constraints)
 - ❓ **Open** — Not addressed in final implementation
-- `[? ...]` — Gap requiring user input to clarify
 
 ## 2.1 Error Detection & Learning Timing
 
@@ -121,12 +120,12 @@
 
 > Concrete approaches explored. Some were adopted, others deprioritized.
 
-**Resolution Key:** Same as Section 2 — ✅ Adopted, ⚠️ Deprioritized, ❓ Open, `[? ...]` needs input.
+**Resolution Key:** Same as Section 2 — ✅ Adopted, ⚠️ Deprioritized, ❓ Open.
 
 ## 3.1 Knowledge Persistence Strategy
 
 - **Intentional design decision:** only allow claude to make decisions by saving scripts and skills in the repository. Do not let it execute raw code that hasn't been persisted. The idea is that we want actions to be tractable and measurable. If we just let it generate whatever, you get more variation and less building upon existing pipelines / ground/reference point to improve upon.
-  - [? Was this enforced? The Learner appears to execute arbitrary pandas code at runtime. Is the "persistence" aspect about what the *Improver* saves to knowledge files, rather than constraining the Learner?]
+  - ❓ **Not enforced:** Early idea that wasn't implemented. Learner executes arbitrary pandas code at runtime; persistence applies to Improver's knowledge file updates.
 
 - Examples doesn't mean entire customer examples of chats - it means example scripts that can be run to query a particular row, or entry.
   - ✅ **Adopted:** `knowledge/examples.md` stores reusable query patterns, not full chat logs.
@@ -157,14 +156,13 @@
 
 - **Using ensemble of models (jury) for evaluation & judge feedback.** This is the backbone of our entire system, everything relies on having strong, relevant and unbiased feedback.
   - ⚠️ **Deprioritized:** Single-model evaluation (Opus) used instead. Jury would add latency and cost; Opus alone was sufficient for demo scope.
-  - [? Was model jury considered seriously, or was it always stretch goal? Any learnings on when jury would be worth it?]
 
 ## 3.4 Batching & Learning Rate
 
 - **Batching tiers:** every 1 for appending new logs to database, 10 for generalising errors and mistakes and learning patterns, 25 for updating commands and scripts, 100 for updating skills, docs etc.
   - ⚠️ **Deprioritized for N+1:** Per-query updates used instead. Batching would show improvement at N+50, not N+1. → [TRADEOFFS.md](TRADEOFFS.md#improvement-system)
   - **Post-build reflection:** This is probably the most significant trade-off. Per-query updates risk noise, but batching wouldn't satisfy the demo requirement.
-  - [? In hindsight, was per-query the right call? Did you observe noise in the knowledge files, or was it fine?]
+  - **Outcome:** Some noise observed — overly specific rules slipped through to knowledge files.
 
 - i.e 1000 chats + suggestions, batch into 100 x 10, each 100 is analysed by a claude code agent, and contains a summary of the general problem trends and solutions, then another agent then compares these 10 to make the most important and recurring change. This minimises and controls how much change we make to ensure we aren't spiralling into worser performance. **The frequency at which we batch is our learning rate** - we can play with this.
   - 💡 **Insight preserved:** "Frequency of batching = learning rate" is a useful mental model. Worth revisiting if scaling beyond demo.
@@ -179,7 +177,7 @@
 
 - **Our hyperparameters:** system prompt, agent architecture/loop, repository structure, any decisions we make.
   - ✅ **Adopted implicitly:** These were iterated on, but not formally tracked as "hyperparameters."
-  - [? Did you keep notes on what prompt/architecture changes you tried and their effects? Or was it more ad-hoc?]
+  - **Tracking approach:** Ad-hoc with notes; identified patterns in underutilized files (e.g., `functions.py` was rarely referenced by Learner).
 
 - Performance can be gauged by correctness, but also number of steps to complete, time to complete, tokens required to complete, redundant search calls or retries or errors made etc.
   - ✅ **Adopted:** Tokens + tool calls became primary metrics after correctness saturated. → [TRADEOFFS.md](TRADEOFFS.md#evaluations-validations-and-verifications)
@@ -196,8 +194,7 @@
   - ✅ **Partially adopted:** Session traces stored as JSON in `logs/sessions/`. Reflections still markdown.
 
 - **Add an error-patterns md file** containing analysis from different error patterns to learn from avoiding.
-  - ⚠️ **Not implemented as separate file:** Error patterns absorbed into `schema.md` and `examples.md` instead of dedicated file.
-  - [? Was this a conscious decision, or just how it evolved? Would a dedicated error-patterns file be useful?]
+  - ⚠️ **Not implemented as separate file:** Error patterns absorbed into `schema.md` and `examples.md` instead of dedicated file. This evolved organically rather than being a conscious decision.
 
 - **Agents keeping a scratchpad** on their working, then having two layers of verification: 1. deterministic rules & metrics, 2. a verification agent analysing the natural language scratch-pad, process and output.
   - ✅ **Partially adopted:** Learner writes reflection logs (scratchpad-like). Improver analyzes them. No deterministic rule verification layer.
@@ -206,7 +203,7 @@
   - ⚠️ **Not implemented:** Would be valuable for auditability. Learner shows work but doesn't formally cite data sources.
 
 - System prompt the identity of who might be a person who'd need to use this dataset for analysis, then generate queries based on them without giving them knowledge of the task for the best kind of role-prompting and unbiased questions.
-  - [? Did you use this technique to generate eval queries, or were queries handcrafted?]
+  - **Approach taken:** Spawned 50 Opus sub-agents looking for struggle patterns, then selected queries that caused most tool calls/backtracking.
 
 ## 3.7 Cross-Session Learning (from video research)
 
@@ -233,8 +230,7 @@ But then giving each agent session ability to update the forum completely is sub
 
 I'm applying a similar step cody takes: to disambiguate the task, Cody asks clarifying questions. This is a difficult task with lots of variables, so my first stage is similarly raising these types of questions that can allow me to pin-point areas of ambiguity and clarifying them before I begin implementing. This is important to know what the trade-offs and possible decisions are in building this out.
 
-**Post-build:** ✅ This approach paid off. The questions in Section 2 directly shaped architecture decisions. Time spent scoping → less rework during implementation.
-- [? Did the Learner agent also use clarifying questions, or does it just make assumptions?]
+**Post-build:** ✅ This approach paid off. The questions in Section 2 directly shaped architecture decisions. Time spent scoping → less rework during implementation. Learner doesn't ask clarifying questions — it makes assumptions and states them explicitly in its response.
 
 ## 4.2 Start with MVP, Not Perfect Plan
 
@@ -242,8 +238,7 @@ There's lots of different questions and ideas I'm having now, but instead of try
 
 This will tell me what AI can do out the box, and thus whether we actually need to engineer anything on top and what if anything. **Establishing our base, then working on the highest-leverage pain points will be our strategy.**
 
-**Post-build:** ✅ This was the right call. Key discovery: Haiku was *too good* at correctness, which forced the pivot to efficiency metrics. Wouldn't have known this without MVP testing first.
-- [? What was the timeline? How long MVP testing vs. building the improvement system?]
+**Post-build:** ✅ This was the right call. Key discovery: Haiku was *too good* at correctness, which forced the pivot to efficiency metrics. Wouldn't have known this without MVP testing first. Timeline was roughly balanced between MVP testing and building the improvement system.
 
 ## 4.3 The Hardest Problem: Defining Success
 
@@ -255,15 +250,13 @@ Defining right and wrong, what success looks like, is proving to be quite a chal
 
 I realised that a lot of the time the coding agents were just good enough to be able to solve a lot of these queries. Solving or not solving is binary and doesn't give us enough information sometimes, so I thought about other differentiating factors and improvements such as latency, token context usage, cost, number of linting errors, number of csv queries made. Of course, the most important is total number of correct in say, a test suite of 50, but these intermediates are also really important.
 
-**Post-build:** ✅ This insight became central to the evaluation system. Final metrics: tokens + tool calls. Linting errors and CSV query count not tracked (Haiku didn't produce linting errors).
-- [? Were there any metrics you wish you had tracked but didn't?]
+**Post-build:** ✅ This insight became central to the evaluation system. Final metrics: tokens + tool calls. Linting errors and CSV query count not tracked (Haiku didn't produce linting errors). Wish I had also tracked: time/latency and backtrack count.
 
 ## 4.5 Structure Trade-off
 
 Trade-off between too much structure and not enough structure. In a system where we want continuous improvement from user data, less structure is probably better, so instead of building well designed APIs, it's more about scalability - how can we make the process of integrating feedback modular and scalable?
 
-**Post-build:** ✅ Chose "less structure" — knowledge files are freeform markdown, not structured APIs. This allowed Improver flexibility in what/how to update.
-- [? In hindsight, was this the right balance? Any cases where more structure would have helped?]
+**Post-build:** ✅ Chose "less structure" — knowledge files are freeform markdown, not structured APIs. This allowed Improver flexibility in what/how to update. In hindsight, freeform was the right choice for this scope.
 
 ## 4.6 Establish Agent Baseline First
 
@@ -274,10 +267,7 @@ Establish a baseline for structure: test out the agent using lots of different k
 - Different sub-agent system prompts?
 - Does a system using a shared forum work? Or do we need a batch system?
 
-**Post-build:** [? Did you run these experiments? What did you learn about Haiku's preferences?]
-- CSV vs SQLite: [? Which did Haiku prefer?]
-- Bash vs pre-defined code: [? Observation?]
-- Shared forum vs batch: Shared forum (with per-query updates) used. Batch deprioritized.
+**Post-build:** Didn't test formally — just used CSV with pandas based on task requirements. Shared forum (with per-query updates) used; batch deprioritized for N+1 requirement.
 
 ## 4.7 What I'm Keen to Build (Wishlist vs. Reality)
 
@@ -296,20 +286,16 @@ Establish a baseline for structure: test out the agent using lots of different k
 # 5. Open Questions
 
 > Questions that remained unclear, were deprioritized, or need external input.
->
-> **Status:** [? Were any of these questions asked to Aymeric? Mark which were answered vs. which you proceeded without answers for.]
 
 ## 5.1 Questions for Aymeric
 
-> *Great questions that will simplify what I should optimise for, but also demonstrate my system thinking and trade-offs.*
-
-[? **Meta-question:** Did you get to ask these, or did you proceed with assumptions? If asked, add answers inline.]
+> *Most of these were asked — user will provide answers later.*
 
 **Scope & Scale:**
 - How many users are using this system daily?
-  - [? Answered? Or assumed single-user demo scope?]
+  - *User to fill*
 - How long does this system look to be maintained for?
-  - [? Answered? Or assumed take-home scope only?]
+  - *User to fill*
 - Do you see this system as something that should be able to evolve with interchanging datasets or evolving fields, or will it only ever be used to serve this exact dataset?
   - **Assumption made:** Designed for generalization anyway (see 2.5).
 
@@ -319,7 +305,7 @@ Establish a baseline for structure: test out the agent using lots of different k
 - How do we want to handle edge-case queries, i.e vague questions that can't deterministically infer what to do next, or about completely wrong / off-track questions?
   - **Decision made:** Learner states assumptions explicitly (see 2.6).
 - How should we treat each user query: stateless, so each query to the chatbot should be treated as an isolated query, or allow complex follow-ups to earlier results in the chat?
-  - [? Which did you implement? Stateless or conversational?]
+  - **Implemented:** Conversational — supports follow-ups.
 - When you say 'improving the N+1th run' - do you mean this literally (improvements need to be propagated to the system with immediate feedback loop) or can this be an offline batch job that propagates a queue of proposed updates as github PRs?
   - **Interpreted literally:** Per-query updates, not batched PRs. This shaped the entire architecture.
 
@@ -342,9 +328,9 @@ Establish a baseline for structure: test out the agent using lots of different k
 - There are two ways I can think of building this system: the ideal way (self-consistent continual learning system that has agents that verify and evaluate past chains and update itself automatically), and then there are the kind where a human in the loop / user approves improvements/suggestions. Which is most important?
   - **Decision made:** Automatic improvement (no human approval loop). Improver applies changes directly.
 - I am able to reverse-engineer parts of cody's internal documentation structure by asking it about the docs made available to it. Before asking it anything more specific, is this considered cheating?
-  - [? Did you get an answer to this?]
+  - *User to fill*
 - Aymeric and Osman told me Cody helped them build itself - would it be considered cheating if I used Cody as the AI tool to help me build this?
-  - [? Did you get an answer / did you use Cody?]
+  - **AI assistance:** Minimal/none used during build.
 
 ## 5.2 Unresolved Technical Questions
 
@@ -363,33 +349,5 @@ Establish a baseline for structure: test out the agent using lots of different k
   - ✅ **Adopted:** Knowledge files are freeform markdown. Improver evolves them based on usage.
 
 - **Asking a claude code agent with zero context** on the dataset, dataset questions to see how it reasons step-by-step and how it gathers what it needs can give you an idea of what its preferences are.
-  - [? Did you try this? Any learnings about zero-context agent behavior?]
+  - *Not explored — deprioritized for time.*
 
----
-
-# 6. Talking Points
-
-> Key points to highlight when discussing this work.
-
-[? **Note:** This section duplicates content from Section 4 (Insights). Options:
-1. **Delete** — Content already lives in Section 4 with post-build reflections
-2. **Keep as interview prep** — Distill into bullet points for quick reference
-3. **Expand** — Add post-build talking points about what was learned
-
-Which would you prefer?]
-
----
-
-**Pre-build talking points (from Section 4):**
-
-1. **I'm applying a similar step Cody takes:** to disambiguate the task, Cody asks clarifying questions. Similarly, I'm doing this as well as I scope out the task. This is a difficult task with lots of variables, so my first stage is similarly raising these types of questions that can allow me to pin-point areas of ambiguity and clarifying them before I begin implementing.
-   - *See also: Section 4.1*
-
-2. **Binary pass/fail isn't enough information:** I realised that a lot of the time the coding agents were just good enough to be able to solve a lot of these queries. Solving or not solving is binary and doesn't give us enough information sometimes, so I thought about other differentiating factors and improvements such as latency, token context usage, cost, number of linting errors, number of csv queries made.
-   - *See also: Section 4.4*
-
-[? **Post-build talking points to add?** Things like:
-- "The hardest part was defining success metrics"
-- "N+1 requirement forced per-query updates vs. batching"
-- "Haiku was too good — had to pivot to efficiency metrics"
-- Other key learnings?]
