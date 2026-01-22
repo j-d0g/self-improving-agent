@@ -17,8 +17,10 @@ If the query is genuinely ambiguous and you cannot reasonably infer intent, ask 
 ### 2. Gather Context
 
 Read knowledge files before writing code:
+- CLAUDE.md - Quick navigation and current focus areas
 - knowledge/schema.md - Column definitions, valid values, formulas, edge cases
 - knowledge/examples.md - Query patterns with working code
+- knowledge/functions.py - Reusable helper functions (import if available)
 
 ### 3. Show All Work
 

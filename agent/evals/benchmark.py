@@ -27,9 +27,13 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 import statistics
+import uuid
 
 PROJECT_ROOT = Path(__file__).parent.parent  # evals/ -> agent/
 BENCHMARKS_DIR = Path(__file__).parent / "benchmarks"  # evals/benchmarks/
+
+# Add project root to path for imports
+sys.path.insert(0, str(PROJECT_ROOT))
 
 
 # ============================================================
@@ -154,11 +158,8 @@ class BenchmarkSuite:
     
     def _get_model(self) -> str:
         """Get the model being used by the agent."""
-        try:
-            from orchestrator import AGENT_MODEL
-            return AGENT_MODEL
-        except ImportError:
-            return "claude-sonnet-4-20250514"
+        # Default model used by LearnerAgent
+        return "claude-haiku-3-5-20241022"
     
     def _snapshot_knowledge(self) -> dict:
         """Capture current state of knowledge files."""
@@ -175,25 +176,31 @@ class BenchmarkSuite:
     
     def _load_eval_file(self, path: str) -> list[dict]:
         """Load queries from eval file."""
-        eval_path = Path(__file__).parent / path
+        eval_path = Path(__file__).parent / path  # evals/ directory
         with open(eval_path) as f:
             return json.load(f)
     
-    async def run_queries(self, queries: list[dict], run_id: str) -> list[dict]:
+    async def run_queries(self, queries: list[dict], run_id: str, enable_improve: bool = False) -> list[dict]:
         """Run queries through the agent and collect results."""
-        from orchestrator import run_query
-        
+        from agent import LearnerAgent
+
+        agent = LearnerAgent(
+            log_traces=True,
+            enable_background_improve=enable_improve
+        )
+
         results = []
         for i, q in enumerate(queries, 1):
             query_text = q["query"]
             expected = q.get("answer", "")
-            
+            query_run_id = uuid.uuid4().hex[:12]
+
             print(f"  [{i}/{len(queries)}] {query_text[:50]}...")
-            
+
             try:
-                result = await run_query(query_text, log_traces=False)
+                result = await agent._query_async(query_text, run_id=query_run_id)
                 trace = result["trace"]
-                
+
                 results.append({
                     "query": query_text,
                     "expected_answer": expected,
@@ -205,7 +212,7 @@ class BenchmarkSuite:
                     "error": None
                 })
                 print(f"      ✓ {trace.total_tokens} tokens, {trace.total_tool_calls} tools, {getattr(trace, 'latency_seconds', 0):.1f}s")
-                
+
             except Exception as e:
                 results.append({
                     "query": query_text,
@@ -218,7 +225,7 @@ class BenchmarkSuite:
                     "error": str(e)
                 })
                 print(f"      ✗ Error: {e}")
-        
+
         return results
     
     async def run_benchmark(
@@ -259,24 +266,25 @@ class BenchmarkSuite:
             print(f"\n[Phase 1] Training with improvements...")
             train_queries = self._load_eval_file(train_file)
             print(f"  Running {len(train_queries)} training queries...")
-            
-            # Run training queries - these may trigger learning
-            await self.run_queries(train_queries, run_id)
-            
-            # Trigger improvement cycle
-            print(f"\n  Triggering improvement cycle...")
-            from orchestrator import run_query
-            await run_query("improve", log_traces=False)
-            
+
+            # Run training queries with background improvement enabled
+            await self.run_queries(train_queries, run_id, enable_improve=True)
+
+            # Wait for background improvement tasks to complete
+            print(f"\n  Waiting for background improvements...")
+            from agent import wait_for_background_tasks
+            await wait_for_background_tasks(timeout=60.0)
+
             # Update knowledge snapshot after improvements
             run.knowledge_snapshot = self._snapshot_knowledge()
-        
+
         # Phase 2: Test evaluation
         print(f"\n[Phase 2] Test evaluation...")
         test_queries = self._load_eval_file(test_file)
         print(f"  Running {len(test_queries)} test queries...")
-        
-        results = await self.run_queries(test_queries, run_id)
+
+        # Run test queries without improvement (clean evaluation)
+        results = await self.run_queries(test_queries, run_id, enable_improve=False)
         run.results = results
         
         # Compute aggregate metrics

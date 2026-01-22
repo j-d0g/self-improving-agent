@@ -1,26 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+> **Audience**: Claude Code CLI - context for assisting humans with this repository.
+> For human documentation, see [README.md](./README.md).
+> For Agent SDK working memory, see [agent/CLAUDE.md](./agent/CLAUDE.md).
+
+This file provides guidance to Claude Code when working with this repository.
+
+**Important**: This project implements agents using the **Claude Agent SDK** (Python), not Claude Code CLI. The `agent/` directory contains a standalone Python application - do not confuse it with Claude Code CLI features like `.claude/agents/` or auto-discovery.
 
 ## Overview
 
-Self-improving financial analysis agent that answers P&L questions using pandas. The core innovation is **cross-session learning**: a three-agent pipeline (Learner → Evaluator → Improver) that persists learnings to files so future sessions benefit from past mistakes.
+Self-improving financial analysis agent that answers P&L questions using pandas. The core innovation is **cross-session learning**: a two-agent pipeline (Learner → Improver) that persists learnings to files so future sessions benefit from past mistakes.
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Learner   │────▶│  Evaluator  │────▶│  Improver   │
-│   (Haiku)   │     │   (Opus)    │     │  (Sonnet)   │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       ▼                   ▼                   ▼
-  logs/sessions/     logs/evaluations/    knowledge/
+┌─────────────┐                      ┌─────────────┐
+│   Learner   │─────reflection──────▶│  Improver   │
+│   (Haiku)   │                      │  (Sonnet)   │
+└─────────────┘                      └─────────────┘
+       │                                    │
+       ▼                                    ▼
+  logs/reflections/                    knowledge/
 ```
 
 - **Learner**: Answers queries, logs process + self-reflection
-- **Evaluator**: Critiques logs for correctness/efficiency, generates improvement specs
-- **Improver**: Applies specs to knowledge files (restricted to `knowledge/` only)
+- **Improver**: Judges reflections, consolidates feedback, applies fixes to knowledge files (restricted to `knowledge/` only)
 
 ## Commands
 
@@ -32,24 +37,24 @@ python agent.py "What was revenue for Product A in Q1 2024?"
 
 # Run evaluations
 python evaluate.py train          # Training set (9 queries)
-python evaluate.py test           # Test set (9 queries)
+python evaluate.py test           # Test set (8 queries)
 
 # Benchmarking
-python benchmark.py run           # Full benchmark
-python benchmark.py dashboard     # View visualizations
-python benchmark.py list          # List all runs
-python benchmark.py compare <run1> <run2>
+python evals/benchmark.py run           # Full benchmark
+python evals/benchmark.py dashboard     # View visualizations
+python evals/benchmark.py list          # List all runs
+python evals/benchmark.py compare <run1> <run2>
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `agent/agent.py` | Core LearnerAgent using Claude SDK |
+| `agent/agent.py` | Core LearnerAgent using Agent SDK |
 | `agent/improver.py` | ImproverAgent that updates knowledge files |
 | `agent/tracing.py` | ExecutionTrace, SessionTrace, metrics |
 | `agent/evaluate.py` | Runs train/test evaluation sets |
-| `agent/benchmark.py` | Performance tracking with visualizations |
+| `agent/evals/benchmark.py` | Performance tracking with visualizations |
 
 ## Knowledge System
 
@@ -61,14 +66,14 @@ The learner reads these before answering queries:
 | `knowledge/examples.md` | Query patterns with working code |
 | `knowledge/functions.py` | Reusable helper functions |
 
-The improver updates these based on evaluator feedback.
+The improver updates these based on learner reflection logs.
 
 ## Log Structure
 
 ```
 logs/
 ├── sessions/      # Learner output (markdown with XML tags)
-├── evaluations/   # Evaluator judgments
+├── reflections/   # Self-reflection logs from sessions
 ├── improvements/  # Improver reports
 └── traces/        # Raw JSON execution traces
 ```
@@ -81,16 +86,21 @@ logs/
 - **Years**: 2020-2024
 - **Metrics**: Revenue, COGS, OPEX, Other Income/Expenses
 
-## Claude Code Agents
+## Agent SDK Implementation
 
-Defined in `agent/.claude/agents/`:
-- `learner.md` - Haiku model, answers financial queries, writes session logs
-- `evaluator.md` - Opus model, critiques session logs
-- `improver.md` - Sonnet model, applies knowledge updates
+The Python agents (not Claude Code CLI):
+- **Learner** (Haiku) - `agent/agent.py` with `prompts/learner.txt`
+- **Improver** (Sonnet) - `agent/improver.py` with `prompts/improver.txt`
+
+These read `agent/CLAUDE.md` as their working memory via explicit file reads in their system prompts.
 
 ## Development Notes
 
-- Agent uses Claude CLI authentication (not .env ANTHROPIC_API_KEY)
-- Session logs are mandatory - every query must produce a file in `logs/sessions/`
+- Agent SDK uses `ANTHROPIC_API_KEY` from `.env` file
+- Reflection logs are mandatory - every query must produce a file in `logs/reflections/`
 - Improver is restricted to modifying only `knowledge/` directory
 - Agent version tracked via git commit in execution traces
+
+## RULES!
+
+- NEVER SET THIS UP WITHOUT A VIRTUAL ENVIRONMENT! ALWAYS USE A .venv.

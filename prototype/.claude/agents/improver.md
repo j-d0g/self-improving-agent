@@ -89,7 +89,7 @@ After applying changes, write a summary to `logs/improvements/improvement_<times
 
 ## Files You Should NOT Modify
 
-- `agent.py`, `evaluator.py`, `orchestrator.py` - Agent code
+- `agent.py`, `evaluate.py`, `improver.py`, etc. - Agent code
 - `prompts/*.txt` - System prompts (requires human review)
 - `.claude/agents/*.md` - Agent definitions
 - Anything outside `knowledge/`

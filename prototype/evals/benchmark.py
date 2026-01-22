@@ -175,7 +175,7 @@ class BenchmarkSuite:
     
     def _load_eval_file(self, path: str) -> list[dict]:
         """Load queries from eval file."""
-        eval_path = Path(__file__).parent / "evals" / path
+        eval_path = Path(__file__).parent / path
         with open(eval_path) as f:
             return json.load(f)
     

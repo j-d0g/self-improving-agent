@@ -59,8 +59,8 @@ Analyze failed queries from an evaluation run and generate improvements.
 ### knowledge/functions.py
 - Added: `function_name()` - [description]
 
-### knowledge/learnings.md
-- Added: [topic] - [summary]
+### knowledge/schema.md
+- Added: [data fact or edge case discovery]
 
 ## Next Steps
 - Re-run evaluation to verify improvements
@@ -76,4 +76,4 @@ Analyze failed queries from an evaluation run and generate improvements.
 
 - `knowledge/examples.md` - Worked examples
 - `knowledge/functions.py` - Helper functions
-- `knowledge/learnings.md` - Schema/data discoveries
+- `knowledge/schema.md` - Schema/data discoveries

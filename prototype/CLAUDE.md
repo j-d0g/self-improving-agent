@@ -1,0 +1,1 @@
+Repository for prototyping feasibility of ideas using Claude Code CLI out the box.
