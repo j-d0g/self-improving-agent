@@ -2,7 +2,7 @@
 
 > This document contains the outline structure for a write-up about the project development process.
 
-**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [ARCHITECTURE](ARCHITECTURE.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
+**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [DESIGN](DESIGN.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
 
 **Previous:** [TRADEOFFS.md](TRADEOFFS.md) — Implementation decisions
 **Start over:** [TASK.md](TASK.md) — Original requirements

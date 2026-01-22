@@ -2,9 +2,9 @@
 
 > This document captures the key design decisions and trade-offs made during implementation, with rationale for each choice.
 
-**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [ARCHITECTURE](ARCHITECTURE.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
+**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [DESIGN](DESIGN.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
 
-**Previous:** [ARCHITECTURE.md](ARCHITECTURE.md) — Early design exploration
+**Previous:** [DESIGN.md](DESIGN.md) — Detailed system design
 **Next:** [BLOG.md](BLOG.md) — Write-up outline for retrospective
 
 ---
