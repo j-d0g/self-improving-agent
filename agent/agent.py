@@ -247,6 +247,10 @@ class LearnerAgent:
         self.metrics = AgentMetrics()
         self.session = SessionTrace()  # Session-level trace for full conversation
 
+        # Multi-turn client (initialized on first query or via start_session)
+        self._client: ClaudeSDKClient | None = None
+        self._client_options: ClaudeAgentOptions | None = None
+
         if self.log_traces:
             self.sessions_dir.mkdir(parents=True, exist_ok=True)
             self.reflections_dir.mkdir(parents=True, exist_ok=True)
@@ -257,8 +261,30 @@ class LearnerAgent:
             return self.session.save(self.sessions_dir)
         return None
 
+    async def start_session(self) -> None:
+        """Start a multi-turn session (opens persistent client)."""
+        if self._client is not None:
+            return  # Already started
+
+        self._client_options = ClaudeAgentOptions(
+            max_turns=20,
+            system_prompt=self.system_prompt,
+            cwd=str(self.project_root),
+            allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
+            include_partial_messages=True,
+        )
+        self._client = ClaudeSDKClient(options=self._client_options)
+        await self._client.__aenter__()
+
+    async def end_session(self) -> None:
+        """End the multi-turn session (closes client)."""
+        if self._client is not None:
+            await self._client.__aexit__(None, None, None)
+            self._client = None
+            self._client_options = None
+
     def query(self, question: str, run_id: str = None) -> dict:
-        """Process a user question through the agent loop."""
+        """Process a user question through the agent loop (single-turn convenience method)."""
         return asyncio.run(self._query_async(question, run_id=run_id))
 
     async def _background_improve(self, session_path: Path, run_id: str) -> None:
@@ -323,22 +349,33 @@ Apply improvements to the appropriate knowledge file:
         # Inject run_id into the question for the LLM to use in reflection log filename
         question_with_run_id = f"[RUN_ID: {trace.run_id}]\n\n{question}"
 
-        options = ClaudeAgentOptions(
-            max_turns=20,
-            system_prompt=self.system_prompt,
-            cwd=str(self.project_root),
-            allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
-            include_partial_messages=True,
-        )
-
-        async with ClaudeSDKClient(options=options) as client:
-            await client.query(question_with_run_id)
+        # Use persistent client if session is active, otherwise create temporary one
+        if self._client is not None:
+            # Multi-turn mode: reuse existing client (conversation history preserved)
+            await self._client.query(question_with_run_id)
             final_answer = await process_agent_stream(
-                client.receive_response(),
+                self._client.receive_response(),
                 trace,
                 tool_prefix="Tool",
                 stream_output=True,
             )
+        else:
+            # Single-turn mode: create temporary client
+            options = ClaudeAgentOptions(
+                max_turns=20,
+                system_prompt=self.system_prompt,
+                cwd=str(self.project_root),
+                allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
+                include_partial_messages=True,
+            )
+            async with ClaudeSDKClient(options=options) as client:
+                await client.query(question_with_run_id)
+                final_answer = await process_agent_stream(
+                    client.receive_response(),
+                    trace,
+                    tool_prefix="Tool",
+                    stream_output=True,
+                )
 
         trace.latency_seconds = time.time() - start_time
 
@@ -402,6 +439,7 @@ async def main_async():
         print("Learner Agent (with background improvement)")
         print("="*50)
         print("Workflow: Query → Answer → Background Improvement")
+        print("Mode: Multi-turn (conversation history preserved)")
         print()
         print("Commands:")
         print("  quit              - Exit (waits for background tasks)")
@@ -409,12 +447,17 @@ async def main_async():
         print("  no-improve <q>    - Answer without background improvement")
         print()
 
+        # Start multi-turn session
+        await agent.start_session()
+
         while True:
             try:
                 question = (await asyncio.to_thread(input, "You: ")).strip()
                 if not question:
                     continue
                 if question.lower() == "quit":
+                    # End multi-turn session
+                    await agent.end_session()
                     # Wait for background tasks
                     if _background_tasks:
                         print("\nWaiting for background tasks...")
@@ -458,6 +501,8 @@ async def main_async():
 
             except KeyboardInterrupt:
                 print("\nExiting...")
+                # End multi-turn session
+                await agent.end_session()
                 # Save session trace on interrupt too
                 session_path = agent.save_session()
                 if session_path:
