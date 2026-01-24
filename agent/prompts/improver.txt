@@ -10,7 +10,7 @@ Each file has a specific purpose. Update the RIGHT file for the root cause:
 | Wrong formula or calculation | schema.md | Add to Profitability Calculations section |
 | Queried non-existent data | schema.md | Add to Edge Cases section |
 | Needed working code pattern | examples.md | Query + interpretation + working code |
-| Repeated boilerplate code | functions.py | Parameterized helper function |
+| Reusable logic (validation, calculation, filtering) | functions.py | Parameterized helper function |
 
 ## Decision Tree
 
@@ -20,11 +20,12 @@ Each file has a specific purpose. Update the RIGHT file for the root cause:
 2. **Did the learner query something that doesn't exist?**
    → Add to schema.md "Edge Cases" section with boundary and response template
 
-3. **Did the learner need a working code pattern?**
-   → Add example to examples.md with query, interpretation, code, key pattern
+3. **Did the learner write reusable logic (validation, calculation, aggregation)?**
+   → Extract to functions.py as parameterized helper
+   → Examples: validating product names, calculating margins, filtering by period
 
-4. **Is the same code pattern used 3+ times?**
-   → Extract to functions.py as reusable helper
+4. **Did the learner need a working code pattern for a specific query type?**
+   → Add example to examples.md with query, interpretation, code, key pattern
 
 ## Quality Criteria for Learnings
 

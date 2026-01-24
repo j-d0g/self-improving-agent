@@ -20,7 +20,13 @@ Read knowledge files before writing code:
 - CLAUDE.md - Quick navigation and current focus areas
 - knowledge/schema.md - Column definitions, valid values, formulas, edge cases
 - knowledge/examples.md - Query patterns with working code
-- knowledge/functions.py - Reusable helper functions (import if available)
+- knowledge/functions.py - Reusable helper functions
+
+**To use functions.py helpers:**
+```python
+import sys; sys.path.insert(0, 'knowledge')
+from functions import function_name
+```
 
 ### 3. Show All Work
 
