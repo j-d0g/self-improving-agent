@@ -10,18 +10,18 @@ An AI agent that answers financial questions about P&L data and **learns from it
 
 ```
 ┌─────────────┐                      ┌─────────────┐
-│   Learner   │─────reflection──────▶│  Improver   │
+│   Learner   │────session trace────▶│  Improver   │
 │   (Haiku)   │                      │  (Sonnet)   │
 └─────────────┘                      └─────────────┘
        │                                    │
        ▼                                    ▼
-  logs/reflections/                   knowledge/
-  (errors, root causes,               (schema, examples,
-   suggested fixes)                    helper functions)
+  logs/sessions/                      knowledge/
+  (execution traces with              (schema, examples,
+   thinking + reflections)             helper functions)
 ```
 
-1. **Learner** (Haiku) answers queries and self-reflects on errors, dead ends, and root causes
-2. **Improver** (Sonnet) judges reflections, consolidates feedback, and propagates fixes to knowledge files
+1. **Learner** (Haiku) answers queries, logging execution traces with thinking, tool calls, and self-reflections
+2. **Improver** (Sonnet) analyzes session traces, identifies patterns/errors, and propagates fixes to knowledge files
 
 New learner sessions read the updated knowledge base before answering.
 
@@ -57,7 +57,7 @@ python agent.py "What was revenue for Product A in Q1 2024?"
 | `test.json` | **Benchmark efficiency** - measure improvement | 8 queries |
 
 ```bash
-# Run training set (generates reflection logs)
+# Run training set (generates session traces, triggers improvement)
 python evaluate.py train
 
 # Run test set (measure accuracy & efficiency)
@@ -95,35 +95,23 @@ agent/
 │   ├── examples.md          # Query patterns
 │   └── functions.py         # Reusable helpers
 └── logs/
-    ├── reflections/         # Learner reflection logs (input to improver)
-    └── sessions/            # Session traces (JSON)
+    ├── sessions/            # Session traces (JSON) - input to improver
+    └── reflections/         # Learner self-reflections (human reference)
 ```
 
 ## How Learning Works
 
-### Reflection Logs
+### Session Traces
 
-Every query produces a structured reflection log in `logs/reflections/`:
+Every query is logged to `logs/sessions/` with full execution details. The improver reads these traces to identify patterns and errors. Session traces include:
+- The original query and interpretation
+- Turn-by-turn thinking and tool calls
+- Final answer and any errors encountered
+- Self-reflection on what went wrong
 
-```markdown
-<query>What was revenue for Product E?</query>
+### Reflection Logs (Human Reference)
 
-<interpretation>...</interpretation>
-
-<process>Step-by-step execution...</process>
-
-<answer>Product E does not exist...</answer>
-
-<errors>KeyError when filtering...</errors>
-
-<root_cause_analysis>
-Missing validation for product names...
-</root_cause_analysis>
-
-<suggested_improvements>
-Add product validation to schema.md...
-</suggested_improvements>
-```
+The learner also writes structured reflection logs to `logs/reflections/` for human debugging. These contain the same self-reflection content in a more readable markdown format.
 
 ### Knowledge Base
 
@@ -135,7 +123,7 @@ The learner reads these files before answering:
 | `knowledge/examples.md` | Query patterns with working code |
 | `knowledge/functions.py` | Reusable helper functions |
 
-The improver updates these based on learner reflection logs.
+The improver updates these based on session traces.
 
 ## Dataset
 

@@ -30,7 +30,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import StreamEvent
 
-from tracing import ExecutionTrace, SessionTrace, AgentMetrics
+from tracing import ExecutionTrace, SessionTrace, AgentMetrics, ImproverTrace
 from prompts import load_prompt
 
 # Configure logging for background tasks
@@ -98,27 +98,10 @@ class LearnerAgent:
         """Process a user question through the agent loop."""
         return asyncio.run(self._query_async(question, run_id=run_id))
 
-    def find_reflection_log(self, run_id: str = None) -> Path | None:
-        """Find a reflection log by run_id, or most recent if no run_id."""
-        if not self.reflections_dir.exists():
-            return None
-
-        if run_id:
-            # Look for specific run_id file
-            log_file = self.reflections_dir / f"{run_id}.md"
-            return log_file if log_file.exists() else None
-
-        # Fallback: find most recent (for backwards compatibility)
-        log_files = list(self.reflections_dir.glob("*.md"))
-        if not log_files:
-            return None
-        log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        return log_files[0]
-
-    async def _background_improve(self, session_log_path: Path) -> None:
+    async def _background_improve(self, session_path: Path, run_id: str) -> None:
         """Run the improver agent in the background (multi-turn)."""
         try:
-            print(f"\n[Improver] Starting for: {session_log_path.name}")
+            print(f"\n[Improver] Starting for run: {run_id}")
 
             options = ClaudeAgentOptions(
                 max_turns=15,
@@ -128,9 +111,14 @@ class LearnerAgent:
                 include_partial_messages=True,
             )
 
-            prompt = f"""Read the reflection log at `{session_log_path}`.
+            prompt = f"""Read the session trace at `{session_path}`.
 
-Look for the <suggested_improvements> section. Apply any actionable improvements to the appropriate knowledge file:
+Find the query with run_id "{run_id}" and analyze:
+1. What the learner was asked
+2. How it responded (tool calls, reasoning, final answer)
+3. Any errors or inefficiencies in the approach
+
+Apply improvements to the appropriate knowledge file:
 - knowledge/schema.md — for data structure, column definitions, valid values
 - knowledge/examples.md — for query patterns and working code
 - knowledge/functions.py — for reusable helper functions"""
@@ -349,19 +337,20 @@ Look for the <suggested_improvements> section. Apply any actionable improvements
         trace.latency_seconds = time.time() - start_time
         trace.final_answer = final_answer
 
-        # Add to metrics and session (session is saved on session end, not per-query)
+        # Add to metrics and session
         self.metrics.add_trace(trace)
         self.session.add_query(trace)
-        log_path = None  # Session will be saved via save_session() when conversation ends
+
+        # Save session after each query so improver can read it
+        log_path = self.save_session()
 
         # Trigger background improvement (deterministic: always after learner completes)
-        if self.enable_background_improve:
-            reflection_log = self.find_reflection_log(run_id=trace.run_id)
-            if reflection_log:
-                task = asyncio.create_task(self._background_improve(reflection_log))
-                _background_tasks.add(task)
-                task.add_done_callback(_background_tasks.discard)
-                logger.info(f"Background improvement task scheduled for {trace.run_id}")
+        if self.enable_background_improve and log_path:
+            session_path = Path(log_path)
+            task = asyncio.create_task(self._background_improve(session_path, trace.run_id))
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+            logger.info(f"Background improvement task scheduled for {trace.run_id}")
 
         return {
             "answer": final_answer,

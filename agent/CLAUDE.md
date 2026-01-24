@@ -14,13 +14,14 @@
 | Data structure | `knowledge/schema.md` | Column names, valid values, formulas |
 | Code patterns | `knowledge/examples.md` | Working pandas code for common queries |
 | Helper functions | `knowledge/functions.py` | Reusable utilities |
-| Recent errors | `logs/reflections/*.md` | What went wrong and why |
+| Recent errors | `logs/sessions/*.json` | Session traces with execution details |
 
 **WRITE TO** - after completing work:
 | Output | Location | Format |
 |--------|----------|--------|
-| Reflection logs | `logs/reflections/<run_id>.md` | XML-tagged markdown |
-| Session traces | `logs/sessions/session_*.json` | JSON execution trace |
+| Session traces | `logs/sessions/session_*.json` | JSON execution trace (auto-saved) |
+| Improver traces | `logs/improver/improver_*.json` | JSON execution trace (auto-saved) |
+| Reflection logs | `logs/reflections/<run_id>.md` | XML-tagged markdown (human reference) |
 
 ---
 
@@ -39,8 +40,8 @@ agent/
 │   └── functions.py       # Reusable helper functions
 │
 ├── logs/                  # TRANSIENT - Learner creates these
-│   ├── reflections/       # Self-reflection logs (input to Improver)
-│   └── sessions/          # Session traces (JSON)
+│   ├── sessions/          # Session traces (JSON) - input to Improver
+│   └── reflections/       # Self-reflection logs (human reference)
 │
 ├── evals/
 │   ├── train.json         # 9 queries - use for learning
@@ -84,7 +85,7 @@ agent/
 <!-- Improver: Add insights about the improvement process itself -->
 
 ### What's Working
-- Reflection logs with XML tags capture errors effectively
+- Session traces capture full execution context for analysis
 - `schema.md` updates have the highest impact on accuracy
 
 ### What Needs Attention
@@ -107,7 +108,7 @@ agent/
 
 ## Patterns to Propagate
 
-<!-- Improver: Track patterns discovered in reflections that should become examples -->
+<!-- Improver: Track patterns discovered in session traces that should become examples -->
 
 1. **Pending**: Rolling averages across time periods
 2. **Pending**: "Last quarter" / "this decade" relative time handling
@@ -128,8 +129,8 @@ agent/
 
 ## Improvement Workflow
 
-1. **Read** recent reflection logs from `logs/reflections/`
-2. **Identify** patterns, errors, root causes
+1. **Read** session traces from `logs/sessions/`
+2. **Identify** patterns, errors, root causes from execution details
 3. **Update** appropriate knowledge file:
    - Wrong data values/structure → `schema.md`
    - Missing code pattern → `examples.md`

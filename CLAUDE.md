@@ -16,16 +16,16 @@ Self-improving financial analysis agent that answers P&L questions using pandas.
 
 ```
 ┌─────────────┐                      ┌─────────────┐
-│   Learner   │─────reflection──────▶│  Improver   │
+│   Learner   │────session trace────▶│  Improver   │
 │   (Haiku)   │                      │  (Sonnet)   │
 └─────────────┘                      └─────────────┘
        │                                    │
        ▼                                    ▼
-  logs/reflections/                    knowledge/
+  logs/sessions/                       knowledge/
 ```
 
-- **Learner**: Answers queries, logs process + self-reflection
-- **Improver**: Judges reflections, consolidates feedback, applies fixes to knowledge files (restricted to `knowledge/` only)
+- **Learner**: Answers queries, logs execution trace (thinking + tool calls + reflections)
+- **Improver**: Analyzes session traces, identifies patterns/errors, applies fixes to knowledge files (restricted to `knowledge/` only)
 
 ## Commands
 
@@ -65,15 +65,18 @@ The learner reads these before answering queries:
 | `knowledge/examples.md` | Query patterns with working code |
 | `knowledge/functions.py` | Reusable helper functions |
 
-The improver updates these based on learner reflection logs.
+The improver updates these based on session traces.
 
 ## Log Structure
 
 ```
 logs/
-├── reflections/   # Self-reflection logs (input to improver)
-└── sessions/      # Session traces (JSON)
+├── sessions/      # Session traces (JSON) - input to improver
+├── improver/      # Improver traces (JSON) - execution history
+└── reflections/   # Learner self-reflections (human reference)
 ```
+
+Session traces contain full execution details (thinking, tool calls, answers) and are saved after each query so the improver can analyze them in real-time. Improver traces capture the improver's own execution (reasoning, file modifications, token usage).
 
 ## Dataset
 
@@ -94,7 +97,8 @@ These read `agent/CLAUDE.md` as their working memory via explicit file reads in 
 ## Development Notes
 
 - Agent SDK uses `ANTHROPIC_API_KEY` from `.env` file
-- Reflection logs are mandatory - every query must produce a file in `logs/reflections/`
+- Session traces saved after each query to `logs/sessions/` (improver reads these)
+- Reflection logs written to `logs/reflections/` for human debugging
 - Improver is restricted to modifying only `knowledge/` directory
 - Agent version tracked via git commit in execution traces
 
