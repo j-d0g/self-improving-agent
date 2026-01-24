@@ -2,7 +2,7 @@
 
 > This document contains the original task requirements from Agemo for building a self-improving data analysis agent.
 
-**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [ARCHITECTURE](ARCHITECTURE.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
+**Navigation:** [TASK](TASK.md) | [NOTES](NOTES.md) | [DESIGN](DESIGN.md) | [TRADEOFFS](TRADEOFFS.md) | [BLOG](BLOG.md)
 
 **Next:** [NOTES.md](NOTES.md) — Personal notes and ideas from reading this task
 

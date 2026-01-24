@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Custom agents for the meta-learning-agent project",
   "agents": [
+    "../learner.md",
     "../evaluator.md",
-    "../learner.md"
+    "../improver.md"
   ]
 }

@@ -98,3 +98,37 @@ I took the 9 queries that led to the highest number of tool calls / tokens consu
 Note, we intentionally leave all the docs blank to begin, as even the slightest direction and schematics saturated performance and efficiency to a point where progress was hard to measure (this data analysis task was too simple!!!) I even considered pre-populating it with intentionally misleading notes to showcase how much the system improved with N examples.
 
 Now, with the system complete, you would run [evaluate.py](http://evaluate.py) against test to get an initial baseline accuracy, then reset and run evaluate train-test to essentially 'train' the context before benchmarking the test accuracy after examples have been populated and observing the accuracy and efficiency metrics.
+
+---
+
+## Hindsight & Lessons Learned
+
+Looking back on the project, several insights emerged that weren't obvious during development:
+
+### Per-Query Noise
+
+Per-query updates introduced noise. Some overly specific rules slipped through — learnings that applied to one edge case but didn't generalize. Batching would have filtered these by surfacing patterns across multiple examples. The N+1 requirement forced this trade-off, but a production system would benefit from both: immediate updates for critical fixes, batched consolidation for pattern recognition.
+
+### Missing Metrics
+
+I wish I had tracked **time/latency** and **backtrack count** from the start. Tokens and tool calls were useful proxies, but explicit backtracking detection (when the agent revised its approach mid-stream) would have been a cleaner signal for "the agent struggled here." Latency data would have helped quantify the user experience impact of different architectures.
+
+### Freeform vs Structure
+
+Keeping knowledge files freeform (markdown prose) rather than structured (JSON, YAML) was the right call. It gave the Improver flexibility to express nuanced guidance that wouldn't fit cleanly into predefined schemas. The agent could write "when you see X, consider Y" rather than forcing everything into rigid key-value patterns.
+
+### Experiment Tracking
+
+Tracking was ad-hoc — notes in markdown files, manual observation of patterns. This was enough to identify that `functions.py` was underutilized (the Improver rarely added reusable code there, preferring to update examples). A more structured experiment log would have made these patterns visible earlier.
+
+### Agent Preferences
+
+I never formally tested whether the agent preferred CSV or would perform better with SQLite. The pragmatic choice was CSV because it was simpler and the task didn't require joins or complex queries. But an A/B comparison might have revealed unexpected preferences in how models interact with data.
+
+### Eval Generation
+
+The 50 Opus sub-agents approach for finding struggle patterns was effective but expensive. In hindsight, a smaller targeted run with specific difficulty criteria might have found the same queries faster. The brute-force approach worked, but wasn't optimal.
+
+### Undoing Best Practices
+
+The most counter-intuitive lesson: sometimes you have to remove helpful features to create room for improvement. Validators, hooks, detailed schemas — these would all help a production agent succeed. But for a learning demonstration, they saturated performance before learning could show value. The goal shaped what "good engineering" meant.
