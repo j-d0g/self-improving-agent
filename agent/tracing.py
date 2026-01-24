@@ -43,6 +43,7 @@ def get_agent_version() -> dict:
 class ExecutionTrace:
     """Tracks a single query execution for metrics."""
     query: str
+    agent_type: str = "learner"  # "learner", "improver", or custom agent name
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     agent_version: dict = field(default_factory=get_agent_version)
@@ -61,16 +62,20 @@ class ExecutionTrace:
     turns: list = field(default_factory=list)
     final_answer: str = ""
 
+    # Improver-specific: link to source that triggered it
+    source_run_id: str | None = None
+
     def to_dict(self) -> dict:
         """Serialize trace to dict (clean format for logs).
-        
+
         Format matches session trace structure:
         - Each turn has 'thinking' and 'tool_calls'
         - Each tool_call has 'tool', 'input', 'output'
         - Excludes runtime metrics (latency, cost, errors, etc.)
         """
-        return {
+        data = {
             "run_id": self.run_id,
+            "agent_type": self.agent_type,
             "agent_version": self.agent_version,
             "query": self.query,
             "timestamp": self.timestamp,
@@ -81,6 +86,18 @@ class ExecutionTrace:
             "turns": self.turns,
             "final_answer": self.final_answer,
         }
+        if self.source_run_id:
+            data["source_run_id"] = self.source_run_id
+        return data
+
+    def save(self, traces_dir: Path) -> str:
+        """Save trace to directory."""
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{self.agent_type}_{self.run_id}.json"
+        filepath = traces_dir / filename
+        with open(filepath, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        return str(filepath)
 
 
 @dataclass

@@ -30,7 +30,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import StreamEvent
 
-from tracing import ExecutionTrace, SessionTrace, AgentMetrics, ImproverTrace
+from tracing import ExecutionTrace, SessionTrace, AgentMetrics
 from prompts import load_prompt
 
 # Configure logging for background tasks
@@ -39,6 +39,169 @@ logger = logging.getLogger(__name__)
 
 # Track background tasks for graceful shutdown
 _background_tasks: set[asyncio.Task] = set()
+
+
+async def process_agent_stream(
+    message_stream,
+    trace: ExecutionTrace,
+    tool_prefix: str = "Tool",
+    stream_output: bool = True,
+) -> str:
+    """Process agent message stream, populate trace, return final answer.
+
+    Shared helper for all agents. Handles:
+    - StreamEvent: real-time output (text deltas, tool calls)
+    - AssistantMessage: turn tracking (thinking + tool calls)
+    - ToolResultBlock: matching results to tool calls
+    - ResultMessage: usage stats (tokens, cost)
+
+    Args:
+        message_stream: Async iterator of SDK messages
+        trace: ExecutionTrace to populate (mutated in place)
+        tool_prefix: Prefix for tool output (e.g., "Tool", "Improver Tool")
+        stream_output: Whether to print streaming output
+
+    Returns:
+        Final answer text
+    """
+    import json as json_module
+
+    current_turn = None
+    final_answer = ""
+    pending_tool_calls = {}
+    current_tool_name = None
+    current_tool_input_json = ""
+
+    def _extract_tool_output(content) -> str | None:
+        if content is None:
+            return None
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for b in content:
+                if isinstance(b, dict):
+                    parts.append(str(b.get("text", b)))
+                else:
+                    parts.append(str(b))
+            return "\n".join(parts)
+        return str(content)
+
+    def _process_tool_result(block, tool_id=None):
+        nonlocal current_turn
+        if tool_id is None:
+            tool_id = getattr(block, 'tool_use_id', None)
+        if tool_id is None:
+            tool_id = getattr(block, 'id', None)
+
+        output = _extract_tool_output(block.content)
+
+        if tool_id and tool_id in pending_tool_calls:
+            pending_tool_calls[tool_id]["output"] = output
+        elif current_turn and current_turn["tool_calls"]:
+            for tool_call in reversed(current_turn["tool_calls"]):
+                if tool_call.get("output") is None:
+                    tool_call["output"] = output
+                    break
+
+    async for message in message_stream:
+        try:
+            # Handle streaming events for real-time output
+            if isinstance(message, StreamEvent):
+                event = message.event
+                event_type = event.get("type")
+
+                if event_type == "content_block_delta":
+                    delta = event.get("delta", {})
+                    delta_type = delta.get("type")
+                    if delta_type == "text_delta" and stream_output:
+                        print(delta.get("text", ""), end="", flush=True)
+                    elif delta_type == "input_json_delta":
+                        current_tool_input_json += delta.get("partial_json", "")
+
+                elif event_type == "content_block_start":
+                    block = event.get("content_block", {})
+                    if block.get("type") == "tool_use":
+                        current_tool_name = block.get("name")
+                        current_tool_input_json = ""
+                        if stream_output:
+                            print(f"\n[{tool_prefix}] {current_tool_name}", end="", flush=True)
+
+                elif event_type == "content_block_stop":
+                    if current_tool_name and current_tool_input_json and stream_output:
+                        try:
+                            tool_input = json_module.loads(current_tool_input_json)
+                            if "file_path" in tool_input:
+                                print(f" → {tool_input['file_path']}", flush=True)
+                            elif "command" in tool_input:
+                                cmd = tool_input["command"]
+                                if len(cmd) > 60:
+                                    cmd = cmd[:57] + "..."
+                                print(f" → {cmd}", flush=True)
+                            elif "pattern" in tool_input:
+                                print(f" → pattern: {tool_input['pattern']}", flush=True)
+                            else:
+                                print(flush=True)
+                        except json_module.JSONDecodeError:
+                            print(flush=True)
+                        current_tool_name = None
+                        current_tool_input_json = ""
+
+                continue
+
+            # Handle AssistantMessage - each one is a new turn
+            elif isinstance(message, AssistantMessage):
+                if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
+                    current_turn["thinking"] = current_turn["thinking"].strip()
+                    trace.turns.append(current_turn)
+
+                current_turn = {"thinking": "", "tool_calls": []}
+
+                for block in message.content:
+                    if isinstance(block, ThinkingBlock):
+                        current_turn["thinking"] += block.text + "\n"
+                    elif isinstance(block, TextBlock):
+                        current_turn["thinking"] += block.text + "\n"
+                        final_answer = block.text
+                    elif isinstance(block, ToolUseBlock):
+                        trace.total_tool_calls += 1
+                        tool_call = {
+                            "tool": block.name,
+                            "input": block.input,
+                            "output": None,
+                        }
+                        current_turn["tool_calls"].append(tool_call)
+                        tool_id = getattr(block, 'id', None) or getattr(block, 'tool_use_id', None)
+                        if tool_id:
+                            pending_tool_calls[tool_id] = tool_call
+                    elif isinstance(block, ToolResultBlock):
+                        _process_tool_result(block)
+
+            # Handle tool results that may come outside AssistantMessage
+            elif hasattr(message, 'content') and message.content:
+                for block in (message.content if isinstance(message.content, list) else [message.content]):
+                    if isinstance(block, ToolResultBlock):
+                        _process_tool_result(block)
+
+            # Handle ResultMessage (contains usage stats)
+            elif isinstance(message, ResultMessage):
+                if hasattr(message, 'usage') and message.usage:
+                    trace.input_tokens = message.usage.get('input_tokens', 0)
+                    trace.output_tokens = message.usage.get('output_tokens', 0)
+                    trace.total_tokens = trace.input_tokens + trace.output_tokens
+                if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
+                    trace.total_cost_usd = message.total_cost_usd
+
+        except Exception as e:
+            logger.error(f"Error processing message: {e}", exc_info=True)
+
+    # Finalize last turn
+    if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
+        current_turn["thinking"] = current_turn["thinking"].strip()
+        trace.turns.append(current_turn)
+
+    trace.final_answer = final_answer
+    return final_answer
 
 
 async def wait_for_background_tasks(timeout: float = 60.0) -> None:
@@ -103,14 +266,6 @@ class LearnerAgent:
         try:
             print(f"\n[Improver] Starting for run: {run_id}")
 
-            options = ClaudeAgentOptions(
-                max_turns=15,
-                system_prompt=self.improver_prompt,
-                cwd=str(self.project_root),
-                allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash"],
-                include_partial_messages=True,
-            )
-
             prompt = f"""Read the session trace at `{session_path}`.
 
 Find the query with run_id "{run_id}" and analyze:
@@ -123,60 +278,47 @@ Apply improvements to the appropriate knowledge file:
 - knowledge/examples.md — for query patterns and working code
 - knowledge/functions.py — for reusable helper functions"""
 
-            current_tool_name = None
-            current_tool_input_json = ""
+            # Create trace for the improver
+            trace = ExecutionTrace(
+                query=prompt,
+                agent_type="improver",
+                source_run_id=run_id,
+            )
+            start_time = time.time()
+
+            options = ClaudeAgentOptions(
+                max_turns=15,
+                system_prompt=self.improver_prompt,
+                cwd=str(self.project_root),
+                allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash"],
+                include_partial_messages=True,
+            )
 
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
-                async for message in client.receive_response():
-                    if isinstance(message, StreamEvent):
-                        event = message.event
-                        event_type = event.get("type")
+                await process_agent_stream(
+                    client.receive_response(),
+                    trace,
+                    tool_prefix="Improver Tool",
+                    stream_output=True,
+                )
 
-                        if event_type == "content_block_delta":
-                            delta = event.get("delta", {})
-                            delta_type = delta.get("type")
-                            if delta_type == "text_delta":
-                                print(delta.get("text", ""), end="", flush=True)
-                            elif delta_type == "input_json_delta":
-                                current_tool_input_json += delta.get("partial_json", "")
+            trace.latency_seconds = time.time() - start_time
 
-                        elif event_type == "content_block_start":
-                            block = event.get("content_block", {})
-                            if block.get("type") == "tool_use":
-                                current_tool_name = block.get("name")
-                                current_tool_input_json = ""
-                                print(f"\n[Improver Tool] {current_tool_name}", end="", flush=True)
-
-                        elif event_type == "content_block_stop":
-                            if current_tool_name and current_tool_input_json:
-                                try:
-                                    import json
-                                    tool_input = json.loads(current_tool_input_json)
-                                    if "file_path" in tool_input:
-                                        print(f" → {tool_input['file_path']}", flush=True)
-                                    else:
-                                        print(flush=True)
-                                except json.JSONDecodeError:
-                                    print(flush=True)
-                                current_tool_name = None
-                                current_tool_input_json = ""
-
-            print("\n[Improver] Completed")
+            # Save improver trace
+            improvements_dir = self.project_root / "logs" / "improvements"
+            trace_path = trace.save(improvements_dir)
+            print(f"\n[Improver] Completed (trace: {trace_path})")
 
         except Exception as e:
             print(f"\n[Improver] Failed: {e}")
 
     async def _query_async(self, question: str, run_id: str = None) -> dict:
         """Async implementation of query with multi-turn support."""
-        trace = ExecutionTrace(query=question)
-        # Use provided run_id or the one generated by trace
+        trace = ExecutionTrace(query=question, agent_type="learner")
         if run_id:
             trace.run_id = run_id
         start_time = time.time()
-        current_turn = None  # Created fresh for each AssistantMessage
-        final_answer = ""
-        pending_tool_calls = {}  # Track tool calls by id for matching with results
 
         # Inject run_id into the question for the LLM to use in reflection log filename
         question_with_run_id = f"[RUN_ID: {trace.run_id}]\n\n{question}"
@@ -189,153 +331,16 @@ Apply improvements to the appropriate knowledge file:
             include_partial_messages=True,
         )
 
-        def _extract_tool_output(content) -> str | None:
-            """Extract string output from tool result content."""
-            if content is None:
-                return None
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                # If content is list of blocks, extract text
-                parts = []
-                for b in content:
-                    if isinstance(b, dict):
-                        parts.append(str(b.get("text", b)))
-                    else:
-                        parts.append(str(b))
-                return "\n".join(parts)
-            return str(content)
-
-        def _process_tool_result(block, tool_id=None):
-            """Process a tool result block and update pending tool calls."""
-            # Try multiple ways to get the tool ID
-            if tool_id is None:
-                tool_id = getattr(block, 'tool_use_id', None)
-            if tool_id is None:
-                tool_id = getattr(block, 'id', None)
-            
-            output = _extract_tool_output(block.content)
-            
-            if tool_id and tool_id in pending_tool_calls:
-                pending_tool_calls[tool_id]["output"] = output
-            elif current_turn and current_turn["tool_calls"]:
-                # Fallback: match to the last tool call in current turn that doesn't have output
-                for tool_call in reversed(current_turn["tool_calls"]):
-                    if tool_call.get("output") is None:
-                        tool_call["output"] = output
-                        break
-
-        # Track current tool for streaming input display
-        current_tool_name = None
-        current_tool_input_json = ""
-
         async with ClaudeSDKClient(options=options) as client:
             await client.query(question_with_run_id)
-            async for message in client.receive_response():
-                try:
-                    # Handle streaming events for real-time output
-                    if isinstance(message, StreamEvent):
-                        event = message.event
-                        event_type = event.get("type")
-
-                        if event_type == "content_block_delta":
-                            delta = event.get("delta", {})
-                            delta_type = delta.get("type")
-                            if delta_type == "text_delta":
-                                print(delta.get("text", ""), end="", flush=True)
-                            elif delta_type == "input_json_delta":
-                                # Accumulate tool input JSON
-                                current_tool_input_json += delta.get("partial_json", "")
-
-                        elif event_type == "content_block_start":
-                            block = event.get("content_block", {})
-                            if block.get("type") == "tool_use":
-                                current_tool_name = block.get("name")
-                                current_tool_input_json = ""
-                                print(f"\n[Tool] {current_tool_name}", end="", flush=True)
-
-                        elif event_type == "content_block_stop":
-                            # Tool input complete - show relevant info
-                            if current_tool_name and current_tool_input_json:
-                                try:
-                                    import json
-                                    tool_input = json.loads(current_tool_input_json)
-                                    # Show file path for file operations
-                                    if "file_path" in tool_input:
-                                        print(f" → {tool_input['file_path']}", flush=True)
-                                    elif "command" in tool_input:
-                                        cmd = tool_input["command"]
-                                        # Truncate long commands
-                                        if len(cmd) > 60:
-                                            cmd = cmd[:57] + "..."
-                                        print(f" → {cmd}", flush=True)
-                                    elif "pattern" in tool_input:
-                                        print(f" → pattern: {tool_input['pattern']}", flush=True)
-                                    else:
-                                        print(flush=True)  # Just newline
-                                except json.JSONDecodeError:
-                                    print(flush=True)
-                                current_tool_name = None
-                                current_tool_input_json = ""
-
-                        continue  # Don't process StreamEvent further
-
-                    # Handle AssistantMessage - each one is a new turn
-                    elif isinstance(message, AssistantMessage):
-                        # Save previous turn if exists
-                        if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
-                            current_turn["thinking"] = current_turn["thinking"].strip()
-                            trace.turns.append(current_turn)
-
-                        # Start new turn
-                        current_turn = {"thinking": "", "tool_calls": []}
-
-                        for block in message.content:
-                            if isinstance(block, ThinkingBlock):
-                                current_turn["thinking"] += block.text + "\n"
-                            elif isinstance(block, TextBlock):
-                                current_turn["thinking"] += block.text + "\n"
-                                final_answer = block.text
-                            elif isinstance(block, ToolUseBlock):
-                                trace.total_tool_calls += 1
-                                tool_call = {
-                                    "tool": block.name,
-                                    "input": block.input,
-                                    "output": None,  # Will be filled when result arrives
-                                }
-                                current_turn["tool_calls"].append(tool_call)
-                                # Try to get tool ID for matching with results
-                                tool_id = getattr(block, 'id', None) or getattr(block, 'tool_use_id', None)
-                                if tool_id:
-                                    pending_tool_calls[tool_id] = tool_call
-                            elif isinstance(block, ToolResultBlock):
-                                _process_tool_result(block)
-
-                    # Handle tool results that may come outside AssistantMessage
-                    elif hasattr(message, 'content') and message.content:
-                        for block in (message.content if isinstance(message.content, list) else [message.content]):
-                            if isinstance(block, ToolResultBlock):
-                                _process_tool_result(block)
-
-                    # Handle ResultMessage (contains usage stats)
-                    elif isinstance(message, ResultMessage):
-                        if hasattr(message, 'usage') and message.usage:
-                            trace.input_tokens = message.usage.get('input_tokens', 0)
-                            trace.output_tokens = message.usage.get('output_tokens', 0)
-                            trace.total_tokens = trace.input_tokens + trace.output_tokens
-                        if hasattr(message, 'total_cost_usd') and message.total_cost_usd:
-                            trace.total_cost_usd = message.total_cost_usd
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}", exc_info=True)
-                    # Continue processing - don't let one error stop the trace
-
-        # Finalize last turn
-        if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
-            current_turn["thinking"] = current_turn["thinking"].strip()
-            trace.turns.append(current_turn)
+            final_answer = await process_agent_stream(
+                client.receive_response(),
+                trace,
+                tool_prefix="Tool",
+                stream_output=True,
+            )
 
         trace.latency_seconds = time.time() - start_time
-        trace.final_answer = final_answer
 
         # Add to metrics and session
         self.metrics.add_trace(trace)
