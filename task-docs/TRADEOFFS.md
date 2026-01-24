@@ -66,6 +66,19 @@ In the end, I traded off clear separation of concerns that would have thrived in
 
 ---
 
+## Background Improver: Separate Client vs SDK Subagent
+
+| Approach | Behavior |
+|----------|----------|
+| **Chosen:** Separate `ClaudeSDKClient` + `asyncio.create_task` | True parallel execution. User continues chatting while improver works. |
+| **Alternative:** SDK Subagent (via `Task` tool) | Would block learner's turn or require explicit background spawn. Adds hooks but no benefit here. |
+
+The SDK's subagent system (`SubagentStart`/`SubagentStop` hooks, shared session context) is designed for orchestrated workflows where a parent agent spawns children. Our use case is simpler: fire-and-forget background processing. A separate client gives real concurrency without the complexity of subagent management.
+
+This also enables streaming output from the improver while the user is typing their next query — something that wouldn't work cleanly with SDK subagents blocking the main agent loop.
+
+---
+
 ## Improvement System
 
 The current improvement system attempts to modify the repository after every example. Of course, this could lead to noisy examples being persisted.
