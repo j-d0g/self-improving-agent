@@ -53,29 +53,31 @@ python agent.py "What was revenue for Product A in Q1 2024?"
 ```
 One-shot mode with no conversation history.
 
-## Evaluation Sets
-
-| Set | Purpose | Queries |
-|-----|---------|---------|
-| `train.json` | **Populate knowledge** - mistakes trigger learning | 9 queries |
-| `test.json` | **Benchmark efficiency** - measure improvement | 8 queries |
-
-```bash
-# Run training set (generates session traces, triggers improvement)
-python evaluate.py train
-
-# Run test set (measure accuracy & efficiency)
-python evaluate.py test
-```
-
 ## Benchmarking
 
+Run benchmarks with LLM-based accuracy scoring and train/validation separation:
+
 ```bash
-python evals/benchmark.py run           # Full benchmark
-python evals/benchmark.py dashboard     # View visualizations
-python evals/benchmark.py list          # List all runs
+cd agent
+
+# Default: 3 epochs with learning enabled
+python evals/benchmark.py run
+
+# Quick test (1 epoch, quiet mode)
+python evals/benchmark.py run --epochs 1 -q
+
+# Baseline without improvement
+python evals/benchmark.py run --no-improve
+
+# View dashboard
+python evals/benchmark.py dashboard
+
+# List/compare runs
+python evals/benchmark.py list
 python evals/benchmark.py compare <run1> <run2>
 ```
+
+See [agent/evals/README.md](agent/evals/README.md) for full documentation.
 
 ## Project Structure
 
@@ -83,7 +85,7 @@ python evals/benchmark.py compare <run1> <run2>
 agent/
 ├── CLAUDE.md                # Agent working memory (read via system prompt)
 ├── agent.py                 # Learner agent + background improver (Agent SDK)
-├── evaluate.py              # Runs train/test evaluations
+├── tools.py                 # MCP tools for P&L analysis
 ├── tracing.py               # Execution traces and metrics
 ├── prompts/
 │   ├── learner.txt          # Learner system prompt
@@ -91,13 +93,13 @@ agent/
 ├── data/
 │   └── FUN_company_pl_actuals_dataset.csv
 ├── evals/
-│   ├── benchmark.py         # Performance tracking
-│   ├── train.json           # Training queries
-│   └── test.json            # Test queries
+│   ├── README.md            # Benchmark documentation
+│   ├── benchmark.py         # Benchmarking with LLM judge + dashboard
+│   ├── train.json           # Training queries (9)
+│   └── test.json            # Validation queries (8)
 ├── knowledge/               # Learning artifacts (updated by improver)
 │   ├── schema.md            # Dataset documentation
-│   ├── examples.md          # Query patterns
-│   └── functions.py         # Reusable helpers
+│   └── examples.md          # Query patterns
 └── logs/
     ├── sessions/            # Session traces (JSON) - input to improver
     └── reflections/         # Learner self-reflections (human reference)

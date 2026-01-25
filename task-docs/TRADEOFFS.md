@@ -126,7 +126,7 @@ I took the 9 queries that led to the highest number of tool calls / tokens consu
 
 Note, we intentionally leave all the docs blank to begin, as even the slightest direction and schematics saturated performance and efficiency to a point where progress was hard to measure (this data analysis task was too simple!!!) I even considered pre-populating it with intentionally misleading notes to showcase how much the system improved with N examples.
 
-Now, with the system complete, you would run [evaluate.py](http://evaluate.py) against test to get an initial baseline accuracy, then reset and run evaluate train-test to essentially 'train' the context before benchmarking the test accuracy after examples have been populated and observing the accuracy and efficiency metrics.
+Now, with the system complete, you would run `python evals/benchmark.py run --no-improve` to get an initial baseline accuracy, then run `python evals/benchmark.py run` to essentially 'train' the knowledge base while benchmarking against the validation set, observing accuracy and efficiency metrics on the dashboard.
 
 ---
 

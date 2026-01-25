@@ -33,6 +33,7 @@ from claude_agent_sdk.types import StreamEvent, HookContext
 
 from tracing import ExecutionTrace, SessionTrace, AgentMetrics
 from prompts import load_prompt
+from tools import pl_tools_server, PL_TOOL_NAMES
 
 # Configure logging for background tasks
 logging.basicConfig(level=logging.INFO)
@@ -292,6 +293,7 @@ class LearnerAgent:
         improver_max_budget_usd: float = 0.25,
         learner_model: str | None = None,
         improver_model: str | None = None,
+        stream_output: bool = True,
     ):
         """Initialize the agent.
 
@@ -303,6 +305,7 @@ class LearnerAgent:
             improver_max_budget_usd: Maximum budget per improver run (default $0.25).
             learner_model: Model for the learner agent (default: Haiku 3.5).
             improver_model: Model for the improver agent (default: Sonnet 4).
+            stream_output: Whether to stream agent output to console (default: True).
         """
         self.learner_model = learner_model or self.DEFAULT_LEARNER_MODEL
         self.improver_model = improver_model or self.DEFAULT_IMPROVER_MODEL
@@ -314,6 +317,7 @@ class LearnerAgent:
         self.enable_background_improve = enable_background_improve
         self.max_budget_usd = max_budget_usd
         self.improver_max_budget_usd = improver_max_budget_usd
+        self.stream_output = stream_output
 
         # Load system prompt from file
         self.system_prompt = load_prompt("learner.txt")
@@ -374,7 +378,8 @@ class LearnerAgent:
     async def _background_improve(self, session_path: Path, run_id: str) -> None:
         """Run the improver agent in the background (multi-turn)."""
         try:
-            print(f"\n[Improver] Starting for run: {run_id}")
+            if self.stream_output:
+                print(f"\n[Improver] Starting for run: {run_id}")
 
             prompt = f"""Read the session trace at `{session_path}`.
 
@@ -422,7 +427,7 @@ Apply improvements to the appropriate knowledge file:
                     client.receive_response(),
                     trace,
                     tool_prefix="Improver Tool",
-                    stream_output=True,
+                    stream_output=self.stream_output,
                 )
 
             trace.latency_seconds = time.time() - start_time
@@ -430,10 +435,12 @@ Apply improvements to the appropriate knowledge file:
             # Save improver trace
             improver_dir = self.project_root / "logs" / "improver"
             trace_path = trace.save(improver_dir)
-            print(f"\n[Improver] Completed (trace: {trace_path})")
+            if self.stream_output:
+                print(f"\n[Improver] Completed (trace: {trace_path})")
 
         except Exception as e:
-            print(f"\n[Improver] Failed: {e}")
+            if self.stream_output:
+                print(f"\n[Improver] Failed: {e}")
 
     async def _query_async(self, question: str, run_id: str = None) -> dict:
         """Async implementation of query with multi-turn support."""
@@ -453,7 +460,7 @@ Apply improvements to the appropriate knowledge file:
                 self._client.receive_response(),
                 trace,
                 tool_prefix="Tool",
-                stream_output=True,
+                stream_output=self.stream_output,
             )
         else:
             # Single-turn mode: create temporary client
@@ -474,7 +481,7 @@ Apply improvements to the appropriate knowledge file:
                     client.receive_response(),
                     trace,
                     tool_prefix="Tool",
-                    stream_output=True,
+                    stream_output=self.stream_output,
                 )
 
         trace.latency_seconds = time.time() - start_time
