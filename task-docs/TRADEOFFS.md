@@ -79,6 +79,19 @@ This also enables streaming output from the improver while the user is typing th
 
 ---
 
+## Multi-Turn Conversation: Persistent Client vs Per-Query Client
+
+| Mode | Behavior |
+|------|----------|
+| **Interactive** (multi-turn) | Single `ClaudeSDKClient` kept open across queries. Conversation history preserved — agent remembers previous Q&A. |
+| **Single query** (`python agent.py "question"`) | Temporary client per query. No history needed for one-shot usage. |
+
+Multi-turn enables natural follow-up questions ("What about last year?" after asking about 2024 revenue) without re-explaining context. The SDK client maintains conversation state internally.
+
+Implementation uses `start_session()` / `end_session()` to manage the persistent client lifecycle, with `_query_async()` detecting which mode to use based on whether a client is already open.
+
+---
+
 ## Improvement System
 
 The current improvement system attempts to modify the repository after every example. Of course, this could lead to noisy examples being persisted.
