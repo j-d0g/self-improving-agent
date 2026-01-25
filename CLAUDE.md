@@ -96,10 +96,13 @@ These read `agent/CLAUDE.md` as their working memory via explicit file reads in 
 
 ## Development Notes
 
-- Agent SDK uses `ANTHROPIC_API_KEY` from `.env` file
+- Agent SDK uses **Claude CLI authentication** (run `claude auth` to set up)
 - Session traces saved after each query to `logs/sessions/` (improver reads these)
 - Reflection logs written to `logs/reflections/` for human debugging
-- Improver is restricted to modifying only `knowledge/` directory
+- Improver is restricted to `knowledge/` directory (enforced via SDK hooks)
+- Budget limits: $0.50/query (learner), $0.25/run (improver) - configurable
+- `permission_mode='acceptEdits'` enables deterministic execution without prompts
+- `setting_sources=['project']` loads CLAUDE.md automatically via SDK
 - Agent version tracked via git commit in execution traces
 
 ## RULES!

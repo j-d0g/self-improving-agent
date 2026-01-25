@@ -29,10 +29,12 @@ New learner sessions read the updated knowledge base before answering.
 
 ```bash
 cd agent
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# Create .env with your API key
-echo "ANTHROPIC_API_KEY=your-key" > .env
+# Authenticate with Claude CLI (SDK uses CLI auth, not API key)
+claude auth
 ```
 
 ## Usage
