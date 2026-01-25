@@ -140,7 +140,7 @@ async def judge_answer(query: str, expected: str, actual: str) -> tuple[float, s
     """Use Haiku to judge if agent answer matches expected answer.
 
     Returns: (score, reason)
-        score: 0.0 (wrong), 0.5 (partial), 1.0 (correct)
+        score: 0.0 (wrong) or 1.0 (correct)
         reason: Brief explanation
     """
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -153,14 +153,18 @@ Expected Answer: {expected}
 
 Agent Answer: {actual}
 
-Consider:
-- Numeric equivalence ($1.2M = $1,200,000 = 1200000)
-- Semantic equivalence (same meaning, different wording)
-- For "not available" answers, check if the reason is correct
-- Minor formatting differences should not affect the score
+Judge as CORRECT (1.0) if:
+- The answer conveys the same information as expected
+- Numeric values match (allow formatting differences: $1.2M = $1,200,000)
+- For "not available" answers, the reason is substantively correct
 
-Return ONLY a JSON object with no other text:
-{{"score": <0.0 or 0.5 or 1.0>, "reason": "<brief 10-word max explanation>"}}"""
+Judge as WRONG (0.0) if:
+- The answer is factually incorrect
+- Key information is missing or wrong
+- The reasoning leads to a wrong conclusion
+
+Return ONLY a JSON object:
+{{"score": <0.0 or 1.0>, "reason": "<brief explanation>"}}"""
 
     try:
         options = ClaudeAgentOptions(
@@ -434,30 +438,42 @@ class BenchmarkSuite:
                     if improve_enabled:
                         await wait_for_background_tasks(timeout=120.0)
 
-                # After batch: run validation on test set
-                val_results = []
-                for test_data in test_queries:
+                # After batch: run validation on test set (parallel)
+                async def run_validation_query(test_data):
+                    """Run a single validation query and judge it."""
                     try:
-                        result = await test_agent._query_async(test_data["query"], run_id=uuid.uuid4().hex[:12])
+                        result = await test_agent._query_async(
+                            test_data["query"],
+                            run_id=uuid.uuid4().hex[:12]
+                        )
                         trace = result["trace"]
                         agent_answer = result["answer"]
 
-                        # Judge the test answer
-                        score, _ = await judge_answer(test_data["query"], test_data["answer"], agent_answer)
+                        # Judge the answer
+                        score, _ = await judge_answer(
+                            test_data["query"],
+                            test_data["answer"],
+                            agent_answer
+                        )
 
-                        val_results.append({
+                        return {
                             "tokens": trace.total_tokens,
                             "tool_calls": trace.total_tool_calls,
                             "judge_score": score,
                             "status": "success",
-                        })
+                        }
                     except Exception:
-                        val_results.append({
+                        return {
                             "tokens": 0,
                             "tool_calls": 0,
                             "judge_score": 0.0,
                             "status": "error",
-                        })
+                        }
+
+                # Run all validation queries in parallel
+                val_results = await asyncio.gather(
+                    *[run_validation_query(tq) for tq in test_queries]
+                )
 
                 # Compute validation stats
                 val_ok = [v for v in val_results if v["status"] == "success"]

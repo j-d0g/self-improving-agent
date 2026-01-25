@@ -103,6 +103,82 @@ Originally I wanted a system that propagated changes after a batch of 10-50 exam
 
 However, this would be harder to demo for the size of the project, and also not satisfy the N+1 improvement requirement, so I deprioritised. I did think about doing both frequent and cyclical changes, but ultimately I did not have time.
 
+### Sequential Processing: The Architectural Bottleneck
+
+The current system is fundamentally sequential:
+
+```
+Query 1 → Wait for Improver → Query 2 → Wait for Improver → Query 3 → ...
+```
+
+Each query blocks on its improver completing before the next query can run. This is because the N+1 requirement demands that Query N+1 benefits from the learning triggered by Query N. The improver must finish writing to `knowledge/` before the next learner session reads it.
+
+This creates a **hard serialization constraint** that dominates benchmark runtime:
+
+| Component | Time | Parallelizable? |
+|-----------|------|-----------------|
+| Learner query | ~30-60s | No (depends on previous improvement) |
+| Wait for improver | ~30-60s | No (must complete before next query) |
+| Validation queries | ~4-8min | Yes (no learning dependency) |
+| Judge calls | ~1-2s each | Yes (independent) |
+
+For a 27-query benchmark (3 epochs), the sequential train loop alone takes ~30-50 minutes, while validation (now parallelized) adds only ~5 minutes per epoch.
+
+### Batched Improvements: The SGD Analogy
+
+A more efficient architecture would batch improvements, analogous to mini-batch stochastic gradient descent:
+
+```
+Current (SGD with batch_size=1):
+  Query 1 → Improve → Query 2 → Improve → ... → Query N → Improve
+
+Proposed (mini-batch SGD):
+  [Query 1, Query 2, ..., Query K] → Aggregate → Single Improvement
+```
+
+**How it would work:**
+
+1. **Run K queries in parallel** (no improver, just collect session traces)
+2. **Aggregate feedback** — Improver analyzes all K traces together
+3. **Single knowledge update** — One atomic change to `knowledge/` based on patterns across K examples
+4. **Repeat** until epoch complete
+
+**Benefits:**
+
+| Benefit | Why |
+|---------|-----|
+| **Efficiency** | K queries run in parallel; improver runs once per batch instead of K times |
+| **Noise reduction** | Single-query flukes get averaged out; only patterns appearing across multiple examples trigger updates |
+| **Reliability** | Fewer, more confident updates; less churn in knowledge files |
+| **Better signal** | Improver sees patterns ("3 queries failed on FX calculations") instead of isolated incidents |
+
+**Example with K=10:**
+
+- Current: 10 queries × (30s query + 45s improve) = **12.5 minutes**
+- Batched: 10 parallel queries (60s) + 1 aggregate improve (90s) = **2.5 minutes** (5x faster)
+
+The improver prompt would change from "analyze this one session trace" to "analyze these 10 session traces, identify common patterns, and make a single consolidated update."
+
+### Why We Didn't Do This
+
+The N+1 demo requirement made batching impractical:
+
+1. **Harder to visualize** — "Query 11 is better than Query 1" is less compelling than "Query 2 is better than Query 1"
+2. **Delayed feedback** — First K queries show no improvement; learning only visible after first batch completes
+3. **Batch size tuning** — Too small = noise; too large = slow feedback; needs experimentation
+
+For a production system with hundreds of queries, batched improvements would be strictly better. The per-query approach was a demo optimization, not an architectural ideal.
+
+### Hybrid Approach (Future Work)
+
+The best of both worlds:
+
+1. **Immediate updates** for critical errors (exceptions, completely wrong answers)
+2. **Batched consolidation** every K queries for pattern recognition
+3. **Epoch-level distillation** to prune noisy learnings and reinforce patterns
+
+This mirrors how neural network training combines per-step gradient updates with periodic learning rate adjustments and checkpoint consolidation.
+
 ---
 
 ## Evaluations, Validations and Verifications
@@ -231,5 +307,210 @@ Connecting observed limitations to planned fixes (bridges to presentation's V2 s
 | Per-query noise | **Batch consolidation layer**; immediate updates for critical fixes, periodic distillation for patterns |
 
 **Grounding:** Stanford's ACE paper (Automatic Cognition Enhancement) + Agemo's approach to in-context learning. The V2 system applies ACE principles: localization (fine-grained retrieval), incremental adaptation (the four operations: find/add/edit/remove), and separated concerns across specialized agents.
+
+---
+
+## V2 Architecture: The Evaluation Problem
+
+### V1's Fundamental Evaluation Problem
+
+V1 uses an LLM judge comparing free-form text outputs. This is fundamentally flawed:
+
+| Problem | Example |
+|---------|---------|
+| **No exact matching** | Is "$1.2M" the same as "$1,200,000"? LLM has to guess. |
+| **Answer mixed with reasoning** | Output: "Based on my analysis, the revenue was $1.2M" — what's the actual answer? |
+| **Ambiguous queries** | "What was revenue?" — which product? which period? gross or net? |
+| **Subjective ground truth** | If the query is ambiguous, multiple answers could be "correct" |
+| **No typed validation** | Can't use hooks to verify output schema — it's just prose |
+
+The core issue: **we're comparing fuzzy interpretations of ambiguous questions**. Even a perfect judge can't give consistent scores when the inputs are ill-defined.
+
+### V2 Solution: Query Compiler Pipeline
+
+The solution is to treat query answering like a **compiler pipeline** — normalize the input before processing:
+
+```
+User Query (messy, ambiguous)
+    ↓
+┌─────────────────────────────────────────────────────────┐
+│  SOLVER AGENT (3 phases)                                │
+│                                                         │
+│  [1. Disambiguator] ←→ User (clarifying questions)      │
+│          ↓                                              │
+│      Canonical Query (clean, unambiguous)               │
+│          ↓                                              │
+│  [2. Planner]                                           │
+│          ↓                                              │
+│      Execution Plan + Expected Type                     │
+│          ↓                                              │
+│  [3. Executor]                                          │
+│          ↓                                              │
+│      Typed Result (number | boolean | category | list)  │
+└─────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────┐
+│  EVALUATOR AGENT                                        │
+│                                                         │
+│  Exact type-checked comparison against ground truth     │
+│  No LLM judgment needed — just value equality           │
+└─────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────┐
+│  IMPROVER AGENT                                         │
+│                                                         │
+│  Receives structured feedback (not fuzzy assessments)   │
+│  Updates knowledge based on concrete errors             │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Phase 1: Query Disambiguator
+
+**Input:** Raw user query ("What was revenue last quarter?")
+
+**Process:**
+- Identifies ambiguities (which product? which metric? what timeframe?)
+- Asks clarifying questions back to user (Agemo-style)
+- User provides answers
+- Outputs canonical query
+
+**Output:** Unambiguous canonical query
+
+```
+User: "What was revenue last quarter?"
+Disambiguator: "Which product? (A, B, C, D, or all)"
+User: "Product A"
+Disambiguator: "Gross Revenue or Net Revenue?"
+User: "Gross"
+Disambiguator: "Last quarter relative to today (Q4 2024) or a specific quarter?"
+User: "Q4 2024"
+
+Canonical Query: "Gross Revenue for Product A in Q4 2024, all countries, sum"
+```
+
+This is the **key insight**: once the query is canonical, the ground truth answer is deterministic. The "gold standard" is defined by the canonical query, not the original messy one.
+
+### Phase 2: Logical Planner
+
+**Input:** Canonical query
+
+**Process:**
+- Breaks down into logical steps
+- Identifies required data filters
+- Determines expected output type
+- Produces verification criteria
+
+**Output:** Execution plan + expected type
+
+```yaml
+canonical_query: "Gross Revenue for Product A in Q4 2024, all countries, sum"
+steps:
+  - filter: { product: "A", year: 2024, quarter: 4 }
+  - filter: { L1: "Revenue", L2: "Gross Revenue" }
+  - aggregate: sum
+  - column: "Value"
+expected_type: number
+expected_unit: "$"
+verification: "single numeric value, positive"
+```
+
+### Phase 3: Tool Executor
+
+**Input:** Execution plan
+
+**Process:**
+- Translates plan to pandas/SQL
+- Executes against dataset
+- Formats output according to expected type
+
+**Output:** Typed result
+
+```python
+@dataclass
+class TypedResult:
+    type: Literal["number", "boolean", "category", "list", "not_available"]
+    value: float | bool | str | list[str] | None
+    unit: str | None  # "$", "%", "count"
+```
+
+```python
+TypedResult(type="number", value=4523891.23, unit="$")
+```
+
+### Evaluator: Exact Matching
+
+With typed outputs, evaluation becomes trivial:
+
+```python
+def evaluate(expected: TypedResult, actual: TypedResult) -> bool:
+    if expected.type != actual.type:
+        return False
+
+    if expected.type == "number":
+        return abs(expected.value - actual.value) < 0.01  # tolerance
+
+    if expected.type == "boolean":
+        return expected.value == actual.value
+
+    if expected.type == "category":
+        return expected.value.lower() == actual.value.lower()
+
+    if expected.type == "list":
+        return set(expected.value) == set(actual.value)
+
+    return expected.value == actual.value
+```
+
+**No LLM judge needed.** Just type-checked equality.
+
+### Why This Works
+
+| V1 Problem | V2 Solution |
+|------------|-------------|
+| Fuzzy LLM judge | Exact type-checked comparison |
+| "Is $1.2M = $1,200,000?" | Both are `TypedResult(type="number", value=1200000.0)` |
+| Answer mixed with reasoning | Executor outputs *only* the typed value |
+| Ambiguous queries | Disambiguator canonicalizes first |
+| No ground truth for ambiguous Qs | Canonical query *defines* the ground truth |
+| Can't validate with hooks | Typed outputs enable schema validation hooks |
+
+### Evaluation Dataset Format (V2)
+
+V1 format (fuzzy):
+```json
+{"query": "What was revenue?", "answer": "Revenue was $1.2M"}
+```
+
+V2 format (typed):
+```json
+{
+  "raw_query": "What was revenue?",
+  "clarifications": [
+    {"question": "Which product?", "answer": "A"},
+    {"question": "Which period?", "answer": "Q1 2024"},
+    {"question": "Gross or Net?", "answer": "Gross"}
+  ],
+  "canonical_query": "Gross Revenue for Product A in Q1 2024, all countries, sum",
+  "expected": {
+    "type": "number",
+    "value": 1200000.0,
+    "unit": "$"
+  }
+}
+```
+
+The clarifications can be pre-filled for benchmark datasets, or collected interactively for real usage.
+
+### V1 Limitations Summary
+
+For comparison against V2, V1's limitations are:
+
+1. **Sequential bottleneck** — can't parallelize training (N+1 constraint)
+2. **Per-query noise** — no pattern aggregation, overly specific learnings
+3. **Fuzzy evaluation** — LLM judge comparing prose, no exact matching
+4. **No query standardization** — ambiguous inputs produce inconsistent outputs
+5. **Free-form outputs** — can't separate answer from reasoning
+6. **Single-agent solver** — no separation of disambiguation/planning/execution
+7. **Improver trusts learner** — no independent verification
 
 **Project name:** `claude_ace`

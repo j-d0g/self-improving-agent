@@ -35,15 +35,13 @@ All commands run from `agent/` directory:
 # Single query
 python agent.py "What was revenue for Product A in Q1 2024?"
 
-# Run evaluations
-python evaluate.py train          # Training set (9 queries)
-python evaluate.py test           # Test set (8 queries)
-
-# Benchmarking
-python evals/benchmark.py run           # Full benchmark
-python evals/benchmark.py dashboard     # View visualizations
-python evals/benchmark.py list          # List all runs
-python evals/benchmark.py compare <run1> <run2>
+# Benchmarking (with LLM judge scoring)
+python evals/benchmark.py run                # 3 epochs, batch_size=2
+python evals/benchmark.py run --epochs 1 -q  # Quick test, quiet mode
+python evals/benchmark.py run --no-improve   # Baseline without improver
+python evals/benchmark.py dashboard          # View visualizations
+python evals/benchmark.py list               # List all runs
+python evals/benchmark.py compare <r1> <r2>  # Compare two runs
 ```
 
 ## Key Files
@@ -52,8 +50,7 @@ python evals/benchmark.py compare <run1> <run2>
 |------|---------|
 | `agent/agent.py` | Core LearnerAgent + background improver |
 | `agent/tracing.py` | ExecutionTrace, SessionTrace, metrics |
-| `agent/evaluate.py` | Runs train/test evaluation sets |
-| `agent/evals/benchmark.py` | Performance tracking with visualizations |
+| `agent/evals/benchmark.py` | Benchmarking with LLM judge + dashboard |
 
 ## Knowledge System
 
