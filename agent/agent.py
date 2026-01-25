@@ -332,8 +332,8 @@ Apply improvements to the appropriate knowledge file:
             trace.latency_seconds = time.time() - start_time
 
             # Save improver trace
-            improvements_dir = self.project_root / "logs" / "improvements"
-            trace_path = trace.save(improvements_dir)
+            improver_dir = self.project_root / "logs" / "improver"
+            trace_path = trace.save(improver_dir)
             print(f"\n[Improver] Completed (trace: {trace_path})")
 
         except Exception as e:

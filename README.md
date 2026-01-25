@@ -37,17 +37,19 @@ echo "ANTHROPIC_API_KEY=your-key" > .env
 
 ## Usage
 
-### Interactive Mode
+### Interactive Mode (Multi-turn)
 ```bash
 cd agent
 python agent.py
 ```
+Conversation history is preserved across queries - the agent remembers previous questions and answers within the session.
 
 ### Single Query
 ```bash
 cd agent
 python agent.py "What was revenue for Product A in Q1 2024?"
 ```
+One-shot mode with no conversation history.
 
 ## Evaluation Sets
 

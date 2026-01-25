@@ -1,0 +1,9 @@
+- improve the improvement: the improver improves the code, context and system, but what if that itself is fundamentally flawed?
+  - can use human in the loop to review
+  - but can also have a batch process that looks at the self-improvement system as a whole, and when it might be going off-track?
+  - it's kind of like in ML when you get convergence to the wrong plateaus, how do you get yourself out?
+  - hyper-parameter tuning is one way. can we optimize the tuning?
+  - if the batch process identifies poorly diverging performance, we can reset to the last commit that showed improvement and intervene the improvements at the system level.
+- a/b testing of different systems to compare their results or divergence over time? 
+- mixing up the training sets and averaging the results. kind of like bootstrapping, or k-folding to ensure we aren't overfitting.
+-

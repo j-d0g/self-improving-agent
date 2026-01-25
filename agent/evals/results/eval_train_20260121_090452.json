@@ -1,0 +1,163 @@
+{
+  "eval_file": "/Users/jtran/Code/agemo/agent/evals/train.json",
+  "label": "train",
+  "timestamp": "2026-01-21T09:04:52.459382",
+  "summary": {
+    "total_queries": 9,
+    "successful": 9,
+    "errors": 0,
+    "success_rate": 100.0,
+    "total_tokens": 17104,
+    "total_tool_calls": 69,
+    "total_latency_seconds": 357.0,
+    "avg_tokens_per_query": 1900.4,
+    "avg_tool_calls_per_query": 7.7,
+    "avg_latency_seconds": 39.7
+  },
+  "results": [
+    {
+      "query": "What was the Gross Revenue for Product A in the United States in Q1 2020?",
+      "run_id": "7fa79d66b79b",
+      "expected_answer": "$1,344,323.16",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**The Gross Revenue for Product A in the United States in Q1 2020 was $1,344,323.16 USD.**\n\n### How I calculated it:\n1. Filtered the dataset for:\n   - FSLine Statement L2 = \"Gross Revenue\"\n   - Product = \"Product A\"\n   - Country = \"United States\"\n   - Fiscal Year = 2020\n   - Fiscal Quarter = \"Q1\"\n2. Found 3 monthly records (one for each month in Q1: January, February, March 2020)\n3. Summed the \"Amount in USD\" column across these 3 records",
+      "metrics": {
+        "total_tokens": 1894,
+        "input_tokens": 8,
+        "output_tokens": 1886,
+        "tool_calls": 8,
+        "latency_seconds": 41.28460741043091
+      },
+      "status": "success"
+    },
+    {
+      "query": "How much did the company spend on Marketing Expenses globally in Q2 2023?",
+      "run_id": "1d17499a138b",
+      "expected_answer": "$1,694,527.61",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\nThe company spent **$1,694,527.61** on Marketing Expenses globally in Q2 2023.\n\n### How I calculated it:\nI filtered the dataset for records where:\n- `FSLine Statement L2` = \"Marketing Expenses\"\n- `Fiscal Year` = 2023\n- `Fiscal Quarter` = \"Q2\"\n\nThen summed the `Amount in USD` across all 72 records from 6 countries (Germany, United Kingdom, United States, Canada, Australia, and Japan).",
+      "metrics": {
+        "total_tokens": 1521,
+        "input_tokens": 8,
+        "output_tokens": 1513,
+        "tool_calls": 8,
+        "latency_seconds": 36.542460203170776
+      },
+      "status": "success"
+    },
+    {
+      "query": "Calculate the total Net Revenue for all products in Q4 2023",
+      "run_id": "882a4df19ee7",
+      "expected_answer": "$23,056,772.27",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**Total Net Revenue for all products in Q4 2023: $23,056,772.27**\n\n### Breakdown by Product:\n| Product | Net Revenue |\n|---------|-------------|\n| Product A | $7,742,924.01 |\n| Product B | $6,393,091.92 |\n| Product C | $4,934,302.08 |\n| Product D | $3,986,454.26 |\n\n### How I calculated this:\n1. Filtered the dataset for records where:\n   - `FSLine Statement L1` = 'Net Revenue'\n   - `Fiscal Quarter` = 'Q4'\n   - `Fiscal Year` = 2023\n2. Summed the `Amount in USD` column for all matching records (216 records total)\n3. All four products (A, B, C, D) contributed to this total",
+      "metrics": {
+        "total_tokens": 1447,
+        "input_tokens": 7,
+        "output_tokens": 1440,
+        "tool_calls": 7,
+        "latency_seconds": 29.888703107833862
+      },
+      "status": "success"
+    },
+    {
+      "query": "What was the year-over-year growth in total OPEX between Q1 2022 and Q1 2023?",
+      "run_id": "9feed55a22a5",
+      "expected_answer": "2.84%",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**The year-over-year growth in total OPEX between Q1 2022 and Q1 2023 was 2.84%.**\n\n### Details:\n| Period | Total OPEX (USD) |\n|--------|------------------|\n| Q1 2022 | $13,448,126.24 |\n| Q1 2023 | $13,830,718.10 |\n| **Absolute Change** | $382,591.86 |\n| **YoY Growth** | **2.84%** |\n\n### How I calculated this:\n1. Filtered the data for `FSLine Statement L1 = 'OPEX'`\n2. Summed `Amount in USD` for Q1 2022 (Fiscal Year = 2022, Fiscal Quarter = Q1)\n3. Summed `Amount in USD` for Q1 2023 (Fiscal Year = 2023, Fiscal Quarter = Q1)\n4. Applied the YoY growth formula: ((Q1 2023 - Q1 2022) / Q1 2022) \u00d7 100",
+      "metrics": {
+        "total_tokens": 1907,
+        "input_tokens": 7,
+        "output_tokens": 1900,
+        "tool_calls": 7,
+        "latency_seconds": 31.40676522254944
+      },
+      "status": "success"
+    },
+    {
+      "query": "Which product had the highest operating margin in Q3 2023?",
+      "run_id": "f33ea93efe13",
+      "expected_answer": "Product C at -22.19%",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "The reflection log has been written successfully.",
+      "metrics": {
+        "total_tokens": 2489,
+        "input_tokens": 8,
+        "output_tokens": 2481,
+        "tool_calls": 8,
+        "latency_seconds": 47.68002200126648
+      },
+      "status": "success"
+    },
+    {
+      "query": "What was the foreign exchange impact for Product C across all countries in 2024?",
+      "run_id": "1d0ed93a88b1",
+      "expected_answer": "$35,095.60",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**The foreign exchange impact for Product C across all countries in 2024 was $35,095.60 (net gain).**\n\n### Breakdown by Country:\n| Country | FX Impact (USD) |\n|---------|-----------------|\n| United Kingdom | $18,996.82 |\n| United States | $11,485.04 |\n| Germany | $2,697.46 |\n| Canada | $2,196.69 |\n| Japan | $9.23 |\n| Australia | -$289.64 |\n\n### How I Calculated This:\nThe dataset contains an explicit line item called \"Foreign Exchange Gain/Loss\" in the `FSLine Statement L2` column. I filtered the data for:\n- Product = \"Product C\"\n- Fiscal Year = 2024\n- FSLine Statement L2 = \"Foreign Exchange Gain/Loss\"\n\nThen summed the `Amount in USD` across all 72 monthly records (12 months \u00d7 6 countries) to get the total FX impact.",
+      "metrics": {
+        "total_tokens": 2094,
+        "input_tokens": 8,
+        "output_tokens": 2086,
+        "tool_calls": 8,
+        "latency_seconds": 44.29076600074768
+      },
+      "status": "success"
+    },
+    {
+      "query": "Compare the Cost of Goods Sold as a percentage of Gross Revenue between 2020 and 2024 for Product B",
+      "run_id": "6313f1da8713",
+      "expected_answer": "COGS as % of Gross Revenue decreased from 44.04% in 2020 to 43.66% in 2024, a -0.38 percentage point improvement",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**For Product B - COGS as a Percentage of Gross Revenue:**\n\n| Year | Gross Revenue (USD) | COGS (USD) | COGS % of Gross Revenue |\n|------|---------------------|------------|-------------------------|\n| 2020 | $17,307,179 | $7,622,432 | **44.04%** |\n| 2024 | $27,329,404 | $11,931,977 | **43.66%** |\n\n**Change: -0.38 percentage points** (from 44.04% to 43.66%)\n\n### Summary\nProduct B shows a slight improvement in cost efficiency between 2020 and 2024. While both Gross Revenue and COGS grew significantly in absolute terms (58% and 57% respectively), the COGS as a percentage of Gross Revenue decreased by 0.38 percentage points. This indicates that Product B's cost structure became marginally more efficient over this period.",
+      "metrics": {
+        "total_tokens": 2317,
+        "input_tokens": 8,
+        "output_tokens": 2309,
+        "tool_calls": 8,
+        "latency_seconds": 47.029473066329956
+      },
+      "status": "success"
+    },
+    {
+      "query": "What was the total revenue for Product E in Q1 2023?",
+      "run_id": "bf8e5ab8c42a",
+      "expected_answer": "Product E does not exist in the dataset. Only Products A, B, C, and D are available.",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**Product E does not exist in the dataset.** Only Products A, B, C, and D are available in this dataset.\n\nTherefore, there is no revenue data for Product E in Q1 2023 (or any other period).\n\n### How I determined this:\n1. The schema documentation explicitly notes: \"No other products exist (E, F, etc. will return no data)\"\n2. I verified this by checking the unique Product values in the dataset, which confirmed only Products A, B, C, and D exist\n3. A filter for \"Product E\" returns 0 rows\n\nIf you'd like revenue data for one of the existing products (A, B, C, or D) in Q1 2023, please let me know!",
+      "metrics": {
+        "total_tokens": 1304,
+        "input_tokens": 7,
+        "output_tokens": 1297,
+        "tool_calls": 7,
+        "latency_seconds": 32.56622505187988
+      },
+      "status": "success"
+    },
+    {
+      "query": "Calculate the Employee Headcount in Japan for Q2 2024",
+      "run_id": "510763095ec0",
+      "expected_answer": "Employee headcount data is not available. The dataset only contains Headcount Expenses (monetary costs), not employee counts.",
+      "difficulty": "unknown",
+      "tests": "",
+      "agent_answer": "## Answer\n\n**Important Clarification:** The dataset does not contain actual employee headcount numbers (count of employees). It contains \"**Headcount Expenses**\" which is a monetary value representing costs associated with employee headcount.\n\n**The Headcount Expenses for Japan in Q2 2024 is $10,101.11 USD.**\n\n### How I calculated this:\n1. Filtered the data for `FSLine Statement L2 = 'Headcount Expenses'`, `Country = 'Japan'`, `Fiscal Quarter = 'Q2'`, and `Fiscal Year = 2024`\n2. Found 12 records (3 months \u00d7 4 products)\n3. Summed the `Amount in USD` column\n\nIf you were looking for an actual count of employees, that data is not available in this dataset - only the monetary expenses related to headcount are tracked.",
+      "metrics": {
+        "total_tokens": 2131,
+        "input_tokens": 8,
+        "output_tokens": 2123,
+        "tool_calls": 8,
+        "latency_seconds": 46.26319098472595
+      },
+      "status": "success"
+    }
+  ]
+}
