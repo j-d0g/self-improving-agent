@@ -210,4 +210,188 @@ These questions would drive the V2 design—returning to some of the ideas cut d
 
 ---
 
-*V1 proved the concept could work. V2 would need to make it reliable.*
+## 4. Wrapping Up V1
+
+Before moving to V2, we needed proper measurement infrastructure. V1's benchmark couldn't reliably answer "is the system actually learning?"
+
+### 4.1 Measuring Learning (The Benchmark Problem)
+
+The original benchmark measured the wrong things:
+
+- **No accuracy scoring** — We assumed correctness and measured efficiency only (tokens, tool calls). This worked when Haiku aced everything, but gave no signal when answers were actually wrong.
+- **No train/validation split** — All queries ran through the improvement loop. We couldn't distinguish "system is learning" from "system is overfitting to these specific examples."
+- **Sequential processing bottleneck** — Each query waited for its improver before the next could run. Not scalable.
+- **No ground truth** — Lack of verifiable environmental signals. How do you know "$1.2M" is correct without executing the query yourself?
+- **Noisy improvements** — Per-query updates overfitting to individual examples rather than surfacing patterns.
+
+The benchmark could show *something* was happening, but couldn't show whether that something was improvement or noise.
+
+### 4.2 Adding the Judge
+
+We introduced an LLM judge to score answer correctness. This revealed new problems.
+
+**First attempt: Three-point scale**
+
+```
+0.0 = Wrong
+0.5 = Partial
+1.0 = Correct
+```
+
+"Partial" had no definition—left entirely to Haiku's interpretation. One judge might score "close but wrong units" as 0.5, another as 0.0. The noise in scoring matched the noise in learning.
+
+**Second attempt: Binary scoring**
+
+```
+0.0 = Wrong
+1.0 = Correct
+```
+
+Cleaner signal. No ambiguous middle ground. But even binary judging is fundamentally fuzzy—we're comparing prose to prose. Is "The revenue was $1.2M because Product A performed well" the same answer as "1200000"? The judge has to interpret, and interpretation varies.
+
+The judge improved measurement, but didn't solve it. Fuzzy evaluation remained a core problem.
+
+### 4.3 Train/Validation Split
+
+To detect overfitting versus generalization, we needed proper train/validation separation.
+
+**Epochs:** Shuffle the training set, run multiple passes. Query order shouldn't matter if learning is robust.
+
+**Batches:** Validate after every N training queries. This surfaces the learning curve—does accuracy improve as more queries run?
+
+**Key insight:** Validation runs with the improver OFF. The learner sees the knowledge files updated by training, but no new learning happens during validation. This tests whether learned patterns generalize beyond the training queries.
+
+The dashboard now shows train vs validation curves. The pattern we're watching for:
+- **Healthy:** Both curves trend upward together
+- **Overfitting:** Train improves but validation stays flat (or drops)
+- **Noise:** Both curves bounce randomly with no trend
+
+### 4.4 Parallelization and the Sequential Bottleneck
+
+We tried to speed up benchmarks and hit a fundamental constraint.
+
+**What we parallelized:** Validation queries. Since no learning happens during validation, queries don't depend on each other. We run 8 concurrent with `asyncio.gather`. Validation that took 20 minutes now takes ~5.
+
+**What we can't parallelize:** Training queries. This is the N+1 constraint at work:
+
+```
+Query N runs → Improver updates knowledge → Query N+1 reads updated knowledge
+```
+
+Query N+1 *must* wait for N's improver to complete. Otherwise it reads stale knowledge and the whole learning chain breaks.
+
+**The math hurts:** For 27 training queries across 3 epochs:
+- Sequential train loop: ~30-50 minutes
+- Parallelized validation: ~5 minutes per epoch
+
+Sequential processing dominates. This isn't an implementation bug—it's architectural. Per-query learning requires sequential execution.
+
+### 4.5 The SGD Insight
+
+Staring at the sequential bottleneck, the analogy clicked: per-query improvement is like stochastic gradient descent with `batch_size=1`.
+
+**Current system (batch_size=1):**
+```
+Query 1 → Improve → Query 2 → Improve → ... → Query N → Improve
+```
+
+High variance. Noisy gradients. Each update overshoots because it's based on a single data point.
+
+**Batched system (batch_size=K):**
+```
+[Query 1, Query 2, ..., Query K] → Aggregate → Single Improvement
+```
+
+**Why batching would help:**
+
+| Benefit | Why |
+|---------|-----|
+| **Efficiency** | K queries run in parallel; improver runs once instead of K times |
+| **Noise reduction** | Single-query flukes get averaged out |
+| **Better patterns** | "3 queries failed on FX calculations" vs "this one query failed" |
+| **Parallel training** | Queries within a batch don't depend on each other |
+
+**Why V1 didn't do it:** The N+1 demo requirement. "Query 2 is better than Query 1" is more compelling than "Query 11 is better than Query 1." Per-query learning was a demo optimization, not an architectural ideal.
+
+The insight pointed toward V2: a system designed for batched learning from the start.
+
+---
+
+## 5. Towards V2
+
+### 5.1 The Fundamental Evaluation Problem
+
+The deeper we looked at benchmarking, the more we realized evaluation itself was broken.
+
+An LLM judge comparing free-form text is fundamentally flawed:
+
+| Problem | Example |
+|---------|---------|
+| **No exact matching** | Is "$1.2M" the same as "$1,200,000"? Judge has to guess. |
+| **Answer mixed with reasoning** | "Based on my analysis, revenue was $1.2M" — what's the actual answer? |
+| **Ambiguous queries** | "What was revenue?" — which product? which period? gross or net? |
+| **Multiple "correct" answers** | If the query is ambiguous, different interpretations yield different valid answers |
+
+The core issue: we're comparing fuzzy interpretations of ambiguous questions. Even a perfect judge can't give consistent scores when the inputs are ill-defined.
+
+**You can't improve what you can't measure.** Fuzzy evaluation blocks learning.
+
+### 5.2 What V2 Must Unlock
+
+V2 addresses the biggest V1 pain points, enabling capabilities that were impossible before:
+
+| Capability | V1 Problem | V2 Solution |
+|------------|------------|-------------|
+| **Verification** | LLM judge comparing prose | Exact type-checked comparison |
+| **Separation** | Single-agent solver doing everything | Disambiguation / planning / execution as distinct phases |
+| **Evaluation** | Ground truth unclear for ambiguous queries | Canonical query defines ground truth |
+| **Parallelization** | N+1 constraint forces sequential | Batched improvements enable parallel training |
+
+### 5.3 The Query Compiler Insight
+
+The key insight: treat query answering like a compiler pipeline. Normalize the input before processing.
+
+**The pipeline:**
+
+```
+User Query (messy, ambiguous)
+    ↓
+[Disambiguator] ←→ User (clarifying questions)
+    ↓
+Canonical Query (normalized, unambiguous)
+    ↓
+[Planner] → Execution steps + expected output type
+    ↓
+[Executor] → Typed result (number, boolean, category, list)
+    ↓
+[Evaluator] → Exact type-checked matching (no LLM needed)
+```
+
+**How it works:**
+
+1. **Disambiguator** asks clarifying questions back to the user (Agemo-style). Output: a canonical query with a single interpretation.
+
+2. Once canonical, everything downstream is deterministic. The "gold standard" answer is defined by the canonical query, not the original messy one.
+
+3. **Planner** produces execution steps plus an expected output type. The type constrains what the executor can return.
+
+4. **Executor** outputs a typed result—not prose mixed with reasoning, just the value.
+
+5. **Evaluator** does exact type-checked matching. Is `1200000.0` equal to `1200000.0`? Yes. No LLM judgment needed.
+
+**The insight chain:**
+1. Evaluation is the core problem (can't improve what you can't measure)
+2. Query standardization unlocks everything (canonicalize → deterministic)
+3. Typed outputs enable exact matching (prose → structured comparison)
+
+### 5.4 Looking Forward
+
+V1 proved the concept works—agents can learn from mistakes. Knowledge files accumulate useful patterns. Session N+1 benefits from Session N.
+
+V2 will make it reliable. Precise evaluation instead of fuzzy judging. Scalable architecture instead of sequential bottleneck. The journey: from fuzzy-in/fuzzy-out to precise-in/precise-out.
+
+See [TRADEOFFS.md §V2 Architecture](TRADEOFFS.md#v2-architecture-the-evaluation-problem) for the detailed technical specification.
+
+---
+
+*V1 was the proof of concept. V2 is the architecture that scales.*
