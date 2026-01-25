@@ -30,6 +30,7 @@ This requirement shaped many trade-offs — favoring immediate, per-query update
 | Agent architecture | Learner + Improver | Orchestrator + multiple specialists | Simpler; task wasn't complex enough to need separation |
 | Update frequency | Per-query | Batched (10-50) | N+1 requirement; demo visibility |
 | Success metric | Efficiency (tokens, tool calls) | Correctness | Haiku aced correctness; needed a differentiating signal |
+| Learner responsibilities | Answer + Reflect | Answer only | Self-reflection catches nuances, but creates cognitive overload |
 
 ---
 
@@ -63,6 +64,8 @@ However, a few things emerged which led me to remove the separate evaluator step
 - **Capability** — The improver was using Opus 4.5, so it could handle a complex prompt involving multiple steps: evaluating logs, reviewing reflections, and combining feedback into interpreting improvements. While this is a lot for a single agent to do, for the sake of time constraints and the simplicity of the task at hand, it was a trade-off I was willing to accept.
 
 In the end, I traded off clear separation of concerns that would have thrived in a production environment requiring more complex workflows and decision-making and with better improvement system that relies on batching, for something I could demo in an N+1 improvement system developed locally.
+
+**Deterministic workflow insight:** This was a simple task requiring a deterministic workflow: query → reflect → improve → repeat. No non-deterministic flows needed managing, so an orchestrator was overkill. However, removing the orchestrator also removed enforcement mechanisms — nothing ensures reflection logs actually get written. The "mandatory" reflection step became voluntary in practice.
 
 ---
 
@@ -158,3 +161,75 @@ The 50 Opus sub-agents approach for finding struggle patterns was effective but 
 ### Undoing Best Practices
 
 The most counter-intuitive lesson: sometimes you have to remove helpful features to create room for improvement. Validators, hooks, detailed schemas — these would all help a production agent succeed. But for a learning demonstration, they saturated performance before learning could show value. The goal shaped what "good engineering" meant.
+
+---
+
+## V1 Observed Limitations
+
+Running V1 on real queries revealed cracks in the foundation. The minimal architecture that felt elegant in design showed its limitations under pressure.
+
+**Detailed analysis:**
+- [v1-observations.md](v1-observations.md) — Incident log and systemic issues
+- [BLOG.md §3](BLOG.md#3-v1-in-practice-what-we-actually-observed) — Narrative walkthrough
+
+**Key findings:**
+- **Learner cognitive overload** — 5+ responsibilities per query; reflection logs dropped under load
+- **Improver trusts self-assessment** — No independent verification; minimized errors accepted at face value
+- **Error categorization gaps** — Reasoning errors fell through the cracks; `<errors>` interpreted as "code exceptions only"
+- **Conservative learning threshold** — "Query-specific" became an escape hatch; real errors dismissed as one-off
+- **SKIP criteria too broad** — Improver conflated query uniqueness with error uniqueness
+
+---
+
+## Features That Didn't Make the Cut
+
+| Feature | What It Would Solve | Why Cut | What We Live With |
+|---------|---------------------|---------|-------------------|
+| **Orchestrator** | Coordinate multi-agent workflows, enforce mandatory steps | Workflow was deterministic — no non-deterministic flows needing management | Simple linear pipeline; no enforcement of mandatory steps (reflection logs get dropped) |
+| **Separate Evaluator** | Independent judgment of errors, unbiased assessment | Merged into Improver for latency | Improver trusts Learner's self-assessment (see [v1-observations.md §4](v1-observations.md)) |
+| **Hooks/Validators** | Guide agent during tool-calls, catch errors early | Would help performance but hurt learning demo | Agent struggles → creates learning signal; recurring issues (shell escaping) go unaddressed |
+| **Full API Interface** | Type-safe deterministic queries, reduced LLM load | System too good even with zero prompting | Freeform pandas code generation; more tokens burned on code synthesis |
+| **Batched Updates** | Filter noise, surface patterns across examples | N+1 requirement demanded per-query updates | Per-query noise; overly specific rules slip through |
+| **Vector Store/Retrieval** | Scale to 1000s of learnings | 8-hour MVP; not enough data points yet | "Read everything" — works for small domain, won't scale |
+| **Regression Testing** | Catch bad improvements automatically | Time constraints | Manual review of git diffs; risky improvements can land |
+| **Semantic Cache** | Skip LLM calls for similar queries; reduce latency and cost | Time constraints; not enough repeat traffic to justify | Every query hits the LLM; duplicate work on semantically identical questions |
+
+**Wild ideas considered (but never built):**
+- **Adversarial examples** — Intentionally wrong knowledge to test recovery and unlearning
+- **Self-modifying prompts** — Agent editing its own system instructions based on learnings
+
+---
+
+## Time Allocation
+
+Honest breakdown of where time went:
+
+| Phase | Allocation | Notes |
+|-------|------------|-------|
+| **Research** | ~30% | SDK docs, YouTube videos, Agent SDK patterns. First time with the SDK was significant overhead. |
+| **MVP** | ~40% | First working version. Multiple iterations as architecture collapsed from 3-agent to 2-agent. |
+| **Evaluations** | ~20% | Finding queries that challenged the model. 50 Opus sub-agents to probe for weaknesses. |
+| **Polish & Docs** | ~10% | README, tracing, benchmarking dashboard. |
+
+**Post-deadline iteration:** Refinement continued in personal time after submission. V1 observations and V2 roadmap emerged from this extended analysis.
+
+**SDK learning curve:** Building with the Claude Agent SDK for the first time added overhead. Patterns like background subagents, session traces, and hook-based validators weren't obvious upfront.
+
+---
+
+## V2 Roadmap
+
+Connecting observed limitations to planned fixes (bridges to presentation's V2 section):
+
+| V1 Limitation | V2 Solution |
+|---------------|-------------|
+| Learner overloaded with reflection | Separate **Reflector/Evaluator** agent takes session trace as input |
+| Improver trusts Learner | **Independent verification** of session trace; don't accept self-assessment at face value |
+| "Read everything" doesn't scale | **Sub-agents for selective retrieval**; each reviews a knowledge file and bubbles up relevant context |
+| Conservative learning threshold | Separate "error uniqueness" from "query uniqueness"; errors can generalize even if queries don't |
+| No enforcement of mandatory steps | **Orchestrator with fallbacks**; if reflection missing, Evaluator generates from session trace |
+| Per-query noise | **Batch consolidation layer**; immediate updates for critical fixes, periodic distillation for patterns |
+
+**Grounding:** Stanford's ACE paper (Automatic Cognition Enhancement) + Agemo's approach to in-context learning. The V2 system applies ACE principles: localization (fine-grained retrieval), incremental adaptation (the four operations: find/add/edit/remove), and separated concerns across specialized agents.
+
+**Project name:** `claude_ace`

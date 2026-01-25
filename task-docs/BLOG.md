@@ -134,3 +134,80 @@ The final architecture is minimal: Learner (Haiku) answers queries and reflects,
 ---
 
 *The journey from over-engineered vision to working prototype required letting go of best practices that didn't serve the goal. Sometimes the right architecture is the simplest one that demonstrates the concept.*
+
+---
+
+## 3. V1 in Practice: What We Actually Observed
+
+The MVP worked. Queries got answered, reflections got written, knowledge files got updated. But running the system on real queries revealed cracks in the foundation. The minimal architecture that felt elegant in design showed its limitations under pressure.
+
+### 3.1 The Incidents
+
+Three patterns emerged from extended testing:
+
+**The Improver that wouldn't learn.** A complex query asked about "revenue difference between countries with more odd letters than even letters." The Learner made a reasoning error—claimed 2021 and 2024 were divisible by 3 (they're not). It caught its own mistake during execution and got the right answer. But when the Improver reviewed the session, it declined to capture anything: "This was a one-off creative/puzzle query that isn't generalizable."
+
+The Improver was technically correct—the *query* was unusual. But the *error* (wrong divisibility reasoning) could absolutely recur. The system conflated query uniqueness with error uniqueness and missed a genuine learning opportunity.
+
+**The reflection that never happened.** Sometimes the Learner simply forgot to write its reflection log. The query got answered, the user got their result, but the improvement pipeline received nothing. The background Improver waited for input that never came.
+
+The Learner had too many jobs: read knowledge files, interpret the query, write code, execute it, explain results, AND write a structured 9-section reflection. Under cognitive load, non-deterministic execution meant any step could get dropped. The reflection—critical for learning—was often the casualty.
+
+**The self-corrected error that worked out anyway.** A shell escaping issue caused the first code execution to fail. The Learner recovered, switched to heredoc syntax, and got the right answer. The Improver processed this correctly—adding useful knowledge about valid product names. But it declined to document the shell escaping pattern that caused the initial failure.
+
+This was the Improver working as designed: staying in scope, not bloating knowledge files with tangential information. But it also meant a recurring footgun went unaddressed.
+
+### 3.2 Systemic Issues
+
+Tracing these incidents back to their roots revealed six interconnected problems:
+
+| Issue | Root Cause | Consequence |
+|-------|------------|-------------|
+| `<errors>` too narrow | Prompt says "errors = exceptions" | Reasoning mistakes logged as "inefficiencies" |
+| No accountability for "None" | Learner can dismiss own errors | Self-serving bias goes unchallenged |
+| SKIP criteria too broad | "Query-specific" becomes escape hatch | Real errors dismissed as one-off |
+| Improver trusts Learner | No independent verification | Minimized errors accepted at face value |
+| Learner overloaded | 5+ responsibilities per query | Reflection logs dropped under load |
+| Decision tree incomplete | Only handles data/formula errors | Reasoning errors have no path |
+
+The issues compound. A reasoning error gets logged as an "inefficiency" (Issue 1). The Learner writes "no improvements needed" (Issue 2). The Improver accepts this because the query was unusual (Issue 3) and the Learner said it was fine (Issue 4). Meanwhile, on another query, the Learner is so overloaded it forgets to write anything at all (Issue 5).
+
+### 3.3 Trade-offs That Didn't Hold
+
+Three design decisions that seemed reasonable in theory failed in practice:
+
+**Conservative learning.** The Improver was designed to avoid noise—only add learnings that would generalize. This made sense for knowledge file hygiene. But "generalizable" became a judgment call the Improver used to avoid work. The bar for "worth learning" was set too high.
+
+**Trust in self-assessment.** The Learner writes its own reflection, including what improvements it thinks are needed. The Improver reads this as authoritative input. This seemed efficient—the Learner has full context. But it also meant the Learner could minimize its own errors, and the Improver would accept the minimization.
+
+**Categorical error types.** Separating `<errors>` (exceptions), `<inefficiencies>` (suboptimal), and `<dead_ends>` (abandoned paths) created clean structure. But reasoning errors—factually wrong statements that got self-corrected—didn't fit any category cleanly. They fell through the cracks.
+
+### 3.4 The Cuts That Cut Too Deep
+
+Looking back at what got removed during the MVP collapse (Section 2.2), some decisions were premature:
+
+- **Separate Evaluator** — Merged into Improver to reduce latency. But this meant evaluation and improvement shared the same biases. An independent judge might have caught errors the Improver rationalized away.
+
+- **Orchestrator** — Cut as unnecessary complexity. But without orchestration, there's no enforcement that reflection logs actually get written. The "mandatory" step has no mechanism to make it mandatory.
+
+- **Validators/hooks** — Avoided because they'd help the agent succeed too easily. But they could have caught the shell escaping issue before it wasted a turn.
+
+The minimal architecture demonstrated the concept. But it also removed the guardrails that would have made the system robust.
+
+### 3.5 Questions for V2
+
+The observations pointed toward specific design questions:
+
+1. **Should the Improver verify independently?** Instead of trusting the Learner's self-assessment, actually re-examine the session trace for errors.
+
+2. **Can we separate reflection from answering?** A dedicated Reflector agent could take the session trace (already captured automatically) and generate analysis without burdening the Learner.
+
+3. **How do we distinguish error types from query types?** The query being unusual doesn't mean the error was unusual. The decision tree needs a path for reasoning failures.
+
+4. **What enforcement mechanisms are missing?** If reflection is mandatory, what happens when it doesn't get written? The system needs fallbacks.
+
+These questions would drive the V2 design—returning to some of the ideas cut during the MVP phase, but informed by what we'd learned running V1 in practice.
+
+---
+
+*V1 proved the concept could work. V2 would need to make it reliable.*

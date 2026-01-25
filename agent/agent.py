@@ -279,6 +279,10 @@ async def wait_for_background_tasks(timeout: float = 60.0) -> None:
 class LearnerAgent:
     """Learner agent with full logging and background improvement."""
 
+    # Model constants
+    DEFAULT_LEARNER_MODEL = "claude-haiku-4-5"
+    DEFAULT_IMPROVER_MODEL = "claude-sonnet-4-5"
+
     def __init__(
         self,
         dataset_path: str = "data/FUN_company_pl_actuals_dataset.csv",
@@ -286,6 +290,8 @@ class LearnerAgent:
         enable_background_improve: bool = True,
         max_budget_usd: float = 0.50,
         improver_max_budget_usd: float = 0.25,
+        learner_model: str | None = None,
+        improver_model: str | None = None,
     ):
         """Initialize the agent.
 
@@ -295,7 +301,11 @@ class LearnerAgent:
             enable_background_improve: Whether to run improver after each query.
             max_budget_usd: Maximum budget per learner query (default $0.50).
             improver_max_budget_usd: Maximum budget per improver run (default $0.25).
+            learner_model: Model for the learner agent (default: Haiku 3.5).
+            improver_model: Model for the improver agent (default: Sonnet 4).
         """
+        self.learner_model = learner_model or self.DEFAULT_LEARNER_MODEL
+        self.improver_model = improver_model or self.DEFAULT_IMPROVER_MODEL
         self.project_root = Path(__file__).parent
         self.dataset_path = self.project_root / dataset_path
         self.sessions_dir = self.project_root / "logs" / "sessions"
@@ -337,6 +347,7 @@ class LearnerAgent:
             return  # Already started
 
         self._client_options = ClaudeAgentOptions(
+            model=self.learner_model,
             max_turns=20,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
@@ -386,6 +397,7 @@ Apply improvements to the appropriate knowledge file:
             start_time = time.time()
 
             options = ClaudeAgentOptions(
+                model=self.improver_model,
                 max_turns=15,
                 system_prompt=self.improver_prompt,
                 cwd=str(self.project_root),
@@ -446,6 +458,7 @@ Apply improvements to the appropriate knowledge file:
         else:
             # Single-turn mode: create temporary client
             options = ClaudeAgentOptions(
+                model=self.learner_model,
                 max_turns=20,
                 system_prompt=self.system_prompt,
                 cwd=str(self.project_root),
