@@ -110,6 +110,61 @@ from typing import Tuple, Optional, List
 # =============================================================================
 # Add aggregation helpers here when the same grouping/pivot pattern repeats
 
+def calculate_rolling_average_with_threshold(
+    df: pd.DataFrame,
+    l1_category: str,
+    group_cols: List[str],
+    period_col: str = 'Fiscal Period',
+    window: int = 3,
+    threshold_pct: float = 10.0
+) -> pd.DataFrame:
+    '''
+    Calculate rolling average for a financial metric and flag values exceeding threshold.
+
+    Args:
+        df: Full P&L DataFrame
+        l1_category: FSLine Statement L1 value (e.g., 'OPEX', 'Net Revenue')
+        group_cols: Columns to group by (e.g., ['Product'])
+        period_col: Column for time ordering (default: 'Fiscal Period')
+        window: Rolling window size (default: 3)
+        threshold_pct: Percentage threshold to flag exceedances (default: 10.0)
+
+    Returns:
+        DataFrame with columns: group_cols, period_col, 'Amount', 'Rolling_Avg',
+        'Diff_Percentage', 'Exceeded_Threshold'
+
+    Example:
+        >>> from knowledge.functions import calculate_rolling_average_with_threshold
+        >>> result = calculate_rolling_average_with_threshold(
+        ...     df, l1_category='OPEX', group_cols=['Product'], threshold_pct=10.0
+        ... )
+        >>> exceeded = result[result['Exceeded_Threshold']]
+    '''
+    # Filter for the L1 category
+    filtered = df[df['FSLine Statement L1'] == l1_category]
+
+    # Group and sum
+    grouped = filtered.groupby(group_cols + [period_col])['Amount in USD'].sum().reset_index()
+    grouped = grouped.rename(columns={'Amount in USD': 'Amount'})
+
+    # Sort for correct rolling calculation
+    grouped = grouped.sort_values(group_cols + [period_col])
+
+    # Calculate rolling average
+    grouped['Rolling_Avg'] = grouped.groupby(group_cols)['Amount'].rolling(
+        window=window, min_periods=1
+    ).mean().reset_index(0, drop=True)
+
+    # Calculate percentage difference
+    grouped['Diff_Percentage'] = (
+        (grouped['Amount'] - grouped['Rolling_Avg']) / grouped['Rolling_Avg'] * 100
+    )
+
+    # Flag exceedances
+    grouped['Exceeded_Threshold'] = grouped['Diff_Percentage'] > threshold_pct
+
+    return grouped
+
 
 # =============================================================================
 # FILTERING FUNCTIONS
