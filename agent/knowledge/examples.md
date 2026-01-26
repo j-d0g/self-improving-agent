@@ -275,6 +275,21 @@ print('Total: $' + '{:.2f}'.format(total))
 
 **How to recognize this trap**: Any time you're using `$` in output formatting inside a bash -c command with Python, the dollar sign will be interpreted by bash. Use alternative formatting methods.
 
+**Best approach - Use single quotes for bash, double quotes for Python**:
+```bash
+# BEST - wrap the entire command in single quotes, use double quotes inside Python
+python3 -c '
+import pandas as pd
+total = 1000.50
+print(f"Total: ${total:,.2f}")  # Works! Bash ignores $ inside single quotes
+'
+```
+
+This is the cleanest solution because:
+1. Single quotes prevent bash from interpreting ANY special characters
+2. You can use f-strings normally inside Python
+3. You must use double quotes for Python strings (not single quotes inside single-quoted bash)
+
 ---
 
 ### MISTAKE: Using Abbreviated Column Names
