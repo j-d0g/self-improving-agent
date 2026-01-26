@@ -244,3 +244,124 @@ cogs = df[df['FSLine Statement L2'].isin(['Direct Labor', 'Direct Materials', 'M
 ```
 
 **How to recognize this trap**: When you need granular line items (L2), look up the actual L2 values in schema.md. When you just need category totals, use L1 filtering instead.
+
+---
+
+### MISTAKE: Using Dollar Signs in Python F-Strings Inside Bash Commands
+
+**Query**: Any query where you format output with currency symbols
+
+**Wrong approach**:
+```bash
+python3 -c "
+total = 1000.50
+print(f'Total: ${total:,.2f}')  # WRONG - bash interprets $total as a variable
+"
+```
+
+**Why it fails**: When running Python via `python3 -c "..."` in bash, the `$` symbol inside the Python f-string is interpreted by bash as a shell variable reference, not as a literal dollar sign. This causes errors like `bad math expression` or `command not found`.
+
+**Correct approaches**:
+```python
+# Option 1: Use % formatting instead
+print('Total: $%0.2f' % total)
+
+# Option 2: Use .format() with explicit dollar sign
+print('Total: ${:.2f}'.format(total))
+
+# Option 3: Concatenate the dollar sign separately
+print('Total: $' + '{:.2f}'.format(total))
+```
+
+**How to recognize this trap**: Any time you're using `$` in output formatting inside a bash -c command with Python, the dollar sign will be interpreted by bash. Use alternative formatting methods.
+
+---
+
+### MISTAKE: Case-Sensitive Column Names
+
+**Query**: Any query accessing DataFrame columns
+
+**Wrong approach**:
+```python
+# WRONG - column names are case-sensitive!
+df['country']      # KeyError!
+df['fiscal year']  # KeyError!
+df['product']      # KeyError!
+```
+
+**Why it fails**: Pandas DataFrame column names are case-sensitive. The dataset uses Title Case column names.
+
+**Correct approach**:
+```python
+# CORRECT - use exact case as in the dataset
+df['Country']
+df['Fiscal Year']
+df['Product']
+```
+
+**How to recognize this trap**: If you get a KeyError for a column that "should" exist, check the case. Print `df.columns.tolist()` to see exact column names.
+
+---
+
+### MISTAKE: Calculating FX Impact from Currency Difference
+
+**Query**: "Analyze the foreign exchange impact"
+
+**Wrong approach**:
+```python
+# WRONG - you can't subtract amounts in different currencies!
+df['FX_Variance'] = np.abs(df['Amount in USD'] - df['Amount in Local Currency'])
+```
+
+**Why it fails**: `Amount in Local Currency` and `Amount in USD` are in different units. Subtracting JPY from USD doesn't give you meaningful FX impact - the numbers are orders of magnitude different (1 USD ≈ 150 JPY).
+
+**Correct approach**:
+```python
+# CORRECT - use the explicit Foreign Exchange Gain/Loss line item
+fx_impact = df[df['FSLine Statement L2'] == 'Foreign Exchange Gain/Loss'].groupby(
+    ['Country', 'Fiscal Year']
+)['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: The dataset already records FX gains/losses as a line item under "Other Income/Expenses". Use that instead of trying to calculate FX impact yourself.
+
+---
+
+## Positive Examples (continued)
+
+### Foreign Exchange Impact Analysis
+
+**Query**: "Analyze the foreign exchange impact"
+
+**Interpretation**: Analyze the foreign exchange gains and losses recorded in the P&L data
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Get FX Gain/Loss from the dedicated line item
+fx_data = df[df['FSLine Statement L2'] == 'Foreign Exchange Gain/Loss']
+
+# Aggregate by Country and Year
+fx_by_country_year = fx_data.groupby(['Country', 'Fiscal Year'])['Amount in USD'].sum().unstack()
+print("FX Gain/Loss by Country and Year:")
+print(fx_by_country_year)
+
+# Total FX impact by country
+fx_by_country = fx_data.groupby('Country')['Amount in USD'].agg(['sum', 'mean', 'count'])
+print("\nTotal FX Impact by Country:")
+print(fx_by_country)
+
+# Year-over-year FX trend
+fx_by_year = fx_data.groupby('Fiscal Year')['Amount in USD'].sum()
+print("\nFX Gain/Loss by Year:")
+print(fx_by_year)
+```
+
+**Key insight**:
+1. Use the `Foreign Exchange Gain/Loss` line item from FSLine Statement L2
+2. Positive values = FX gains, Negative values = FX losses
+3. The Currency column shows each country's local currency (AUD, CAD, EUR, JPY, GBP, USD)
+4. US has no FX impact since USD is the reporting currency
