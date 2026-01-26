@@ -62,7 +62,7 @@ This file documents the structure and valid values in the P&L dataset.
 |-------------|---------------|
 | Net Revenue | `Gross Revenue`, `Returns and Refunds`, `Revenue Adjustment` |
 | Cost of Goods Sold | `Direct Labor`, `Direct Materials`, `Manufacturing Overhead` |
-| Operating Expenses | `General & Administrative`, `Headcount Expenses`, `IT Expenses`, `Marketing Expenses`, `R&D Expenses`, `Sales Expenses` |
+| OPEX | `General & Administrative`, `Headcount Expenses`, `IT Expenses`, `Marketing Expenses`, `R&D Expenses`, `Sales Expenses` |
 | Other Income/Expenses | `Foreign Exchange Gain/Loss`, `Interest Expense`, `Interest Income` |
 
 **To get Revenue using L2** (if L1 filtering is not enough):
