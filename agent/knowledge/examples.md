@@ -184,6 +184,32 @@ df.groupby(['Product', 'Country', 'Fiscal Year', 'Fiscal Period'])
 
 ---
 
+### MISTAKE: Using 'Quarter' Instead of 'Fiscal Quarter'
+
+**Query**: "What's the revenue for Q4?" or any quarterly analysis
+
+**Wrong approach**:
+```python
+# WRONG - there is no 'Quarter' column!
+df[df['Quarter'] == 'Q4']  # KeyError: 'Quarter'
+quarterly_revenue = df.groupby('Quarter')['Revenue'].sum()  # Multiple errors!
+```
+
+**Why it fails**: The column is named `Fiscal Quarter`, not `Quarter`. Additionally, there is no `Revenue` column - you must filter by `FSLine Statement L1 == 'Net Revenue'` and sum `Amount in USD`.
+
+**Correct approach**:
+```python
+# CORRECT - use 'Fiscal Quarter' and filter by L1 for revenue
+q4_revenue = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: Any time you need quarterly data, use `Fiscal Quarter`. Any time you need revenue, filter `FSLine Statement L1 == 'Net Revenue'` and aggregate `Amount in USD`.
+
+---
+
 ## Positive Examples (continued)
 
 ### Profit Margin with Year-over-Year Comparison
