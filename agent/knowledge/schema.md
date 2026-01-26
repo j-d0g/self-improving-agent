@@ -32,7 +32,18 @@ This file documents the structure and valid values in the P&L dataset.
 ## Valid Values
 
 ### Products
-- A, B, C, D (only these four exist - no others)
+- `Product A`, `Product B`, `Product C`, `Product D` (only these four exist - no others)
+
+**IMPORTANT**: Product values include the word "Product" - they are NOT just letters!
+```python
+# WRONG - these won't match anything!
+df[df['Product'] == 'A']
+df['Product'].isin(['A', 'B'])
+
+# CORRECT - use full product names
+df[df['Product'] == 'Product A']
+df['Product'].isin(['Product A', 'Product B'])
+```
 
 ### Countries
 - Australia, Canada, Germany, Japan, United Kingdom, United States
