@@ -394,6 +394,98 @@ print(df['FSLine Statement L1'].unique())
 
 ---
 
+### MISTAKE: Assuming a 'date' Column Exists
+
+**Query**: Any query involving time series, seasonal patterns, or date-based analysis
+
+**Wrong approach**:
+```python
+# WRONG - there is no 'date' column!
+df['date'] = pd.to_datetime(df['date'])  # KeyError: 'date'
+df['month'] = df['date'].dt.month
+df['quarter'] = df['date'].dt.quarter
+```
+
+**Why it fails**: The dataset uses separate fiscal columns for time information, not a combined date column. Attempting to access `df['date']` raises a KeyError.
+
+**Correct approach**:
+```python
+# CORRECT - use the existing fiscal columns
+# Fiscal Year: 2020, 2021, 2022, 2023, 2024 (int)
+# Fiscal Quarter: Q1, Q2, Q3, Q4 (string)
+# Fiscal Period: 2020-01, 2020-02, ... (string)
+
+# For quarterly analysis:
+df.groupby(['Fiscal Year', 'Fiscal Quarter'])['Amount in USD'].sum()
+
+# For monthly analysis:
+df.groupby(['Fiscal Year', 'Fiscal Period'])['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: Before writing time-based analysis, check columns with `df.columns.tolist()`. The dataset uses Fiscal Year/Quarter/Period, not a datetime column.
+
+---
+
+### MISTAKE: Using 'Revenue' Instead of 'Net Revenue' for L1 Filtering
+
+**Query**: Any query involving revenue
+
+**Wrong approach**:
+```python
+# WRONG - the L1 value is 'Net Revenue', not 'Revenue'!
+revenue_df = df[df['FSLine Statement L1'] == 'Revenue']  # Returns empty DataFrame!
+```
+
+**Why it fails**: The FSLine Statement L1 column uses `'Net Revenue'`, not `'Revenue'`. Filtering with 'Revenue' returns an empty DataFrame silently.
+
+**Correct approach**:
+```python
+# CORRECT - use 'Net Revenue' exactly
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue']
+```
+
+**How to recognize this trap**: If your revenue analysis returns 0 or empty results, check the exact L1 values:
+```python
+print(df['FSLine Statement L1'].unique())
+# Output: ['Cost of Goods Sold' 'Net Revenue' 'OPEX' 'Other Income/Expenses']
+```
+
+---
+
+### MISTAKE: Trying to Use matplotlib for Visualization
+
+**Query**: Any query where you want to create charts or visualizations
+
+**Wrong approach**:
+```python
+# WRONG - matplotlib is not installed!
+import matplotlib.pyplot as plt  # ModuleNotFoundError!
+plt.figure(figsize=(12, 6))
+df.plot(kind='bar')
+plt.savefig('output.png')
+```
+
+**Why it fails**: The execution environment does not have matplotlib installed. Import will fail with ModuleNotFoundError.
+
+**Correct approach**:
+```python
+# CORRECT - use text-based output with pivot tables
+pivot = df.pivot_table(
+    index='Fiscal Quarter',
+    columns='Product',
+    values='Amount in USD',
+    aggfunc='sum'
+).round(2)
+print(pivot)
+
+# Or save data to CSV for later visualization
+pivot.to_csv('output.csv')
+```
+
+**How to recognize this trap**: Avoid matplotlib entirely. Use pandas pivot tables, formatted print statements, or save data to CSV files for visualization outside the environment.
+
+---
+
 ## Positive Examples (continued)
 
 ### Seasonal Pattern Analysis
