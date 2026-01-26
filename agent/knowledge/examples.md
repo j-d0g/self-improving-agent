@@ -1191,6 +1191,54 @@ print(df.columns.tolist())
 
 ---
 
+### MISTAKE: Not Checking Column Names Before Writing Code (Trial and Error Pattern)
+
+**Query**: Any analytical query on the dataset
+
+**Wrong approach**:
+```python
+# WRONG - jumping straight into code with assumed column names
+# Attempt 1 - fails
+df[df['Year'] % 2 == 0]['Revenue'].sum()  # KeyError: 'Year'
+
+# Attempt 2 - check columns after failure
+print(df.columns.tolist())  # Now see 'Fiscal Year' not 'Year'
+
+# Attempt 3 - fix Year but still wrong
+df[df['Fiscal Year'] % 2 == 0]['Revenue'].sum()  # KeyError: 'Revenue'
+
+# Multiple tool calls wasted before getting it right...
+```
+
+**Why it fails**: Assuming column names without checking leads to a trial-and-error pattern that wastes multiple tool calls. The learner made 10 tool calls for what should have been 1-2.
+
+**Correct approach**:
+```python
+# CORRECT - ALWAYS check columns FIRST, THEN write analysis code
+print(df.columns.tolist())
+# Output: ['Fiscal Year', 'Fiscal Quarter', 'Fiscal Period', 'FSLine Statement L1',
+#          'FSLine Statement L2', 'Product', 'Country', 'Currency',
+#          'Amount in Local Currency', 'Amount in USD', 'Version']
+
+# Also check unique values for filter columns
+print(df['FSLine Statement L1'].unique())
+# Output: ['Cost of Goods Sold' 'Net Revenue' 'OPEX' 'Other Income/Expenses']
+
+print(df['Product'].unique())
+# Output: ['Product A' 'Product B' 'Product C' 'Product D']
+
+# NOW write the correct query in one shot
+revenue = df[(df['Fiscal Year'] % 2 == 0) &
+             (df['FSLine Statement L1'] == 'Net Revenue')]['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: If your first instinct is to start writing analysis code immediately, STOP. Always run these checks first:
+1. `df.columns.tolist()` - see actual column names
+2. `df['column'].unique()` - see valid values for filter columns
+This turns a 10-tool-call session into a 2-tool-call session.
+
+---
+
 ### MISTAKE: Not Using include_groups=False with GroupBy.apply()
 
 **Query**: Any query using groupby().apply() to calculate YoY changes or rolling metrics
