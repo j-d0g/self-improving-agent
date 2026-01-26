@@ -300,6 +300,17 @@ df[df['FSLine Statement L1'] == 'OPEX']
 
 The actual L1 values are: `'Cost of Goods Sold'`, `'Net Revenue'`, `'OPEX'`, `'Other Income/Expenses'`
 
+**IMPORTANT**: 'Operating Expenses' also does NOT exist at L2 level! The L2 values under OPEX are:
+`General & Administrative`, `Headcount Expenses`, `IT Expenses`, `Marketing Expenses`, `R&D Expenses`, `Sales Expenses`
+
+```python
+# WRONG - L2 has no 'Operating Expenses' value either!
+df[df['FSLine Statement L2'] == 'Operating Expenses']  # Returns empty!
+
+# CORRECT - use L1 for the aggregate, or L2 for specific components
+df[df['FSLine Statement L1'] == 'OPEX']  # Preferred for total OPEX
+```
+
 ### No 'date' Column - Use Fiscal Year/Quarter/Period
 **Trigger**: Query asks about dates, time series, or seasonal patterns
 **Reality**: The dataset does NOT have a 'date' column. It uses separate columns for fiscal time periods.
