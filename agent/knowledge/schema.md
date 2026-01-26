@@ -329,6 +329,29 @@ revenue = df[df['FSLine Statement L1'] == 'Net Revenue']['Amount in USD'].sum()
 cogs = df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in USD'].sum()
 ```
 
+### CRITICAL: Never Sum Amount in USD Without L1 Filter
+**Trigger**: Summing `Amount in USD` to calculate a financial metric
+**Reality**: The `Amount in USD` column contains values for ALL financial categories (Revenue, COGS, OPEX, Other). Summing without filtering produces meaningless numbers!
+**Correct approach**: ALWAYS filter by `FSLine Statement L1` first:
+
+```python
+# WRONG - mixes revenue + costs + expenses together!
+total = df[df['Fiscal Quarter'] == 'Q4']['Amount in USD'].sum()  # Meaningless ~$215M
+
+# CORRECT - filter by category first
+q4_revenue = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()  # Actual Q4 revenue
+
+q4_cogs = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Cost of Goods Sold')
+]['Amount in USD'].sum()  # Actual Q4 COGS
+```
+
+**Rule**: If you're about to sum `Amount in USD`, ask yourself: "Did I filter by L1 category?" If not, your result is probably wrong.
+
 ### Foreign Exchange Impact Analysis
 **Trigger**: Query asks about FX impact, currency effects, or foreign exchange
 **Reality**: The dataset has `Amount in Local Currency` and `Amount in USD` columns, plus an explicit `Foreign Exchange Gain/Loss` line item under Other Income/Expenses
