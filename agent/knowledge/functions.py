@@ -273,6 +273,63 @@ def compare_products_on_metrics(
 
 
 # =============================================================================
+# OUTLIER DETECTION FUNCTIONS
+# =============================================================================
+# Add outlier detection helpers here
+
+def find_outliers_iqr(series: pd.Series) -> pd.Series:
+    '''
+    Identify outliers using the Interquartile Range (IQR) method.
+
+    Outliers are defined as values that fall below Q1 - 1.5*IQR or
+    above Q3 + 1.5*IQR, where IQR = Q3 - Q1.
+
+    Args:
+        series: A pandas Series of numerical values
+
+    Returns:
+        Boolean Series where True indicates an outlier
+
+    Example:
+        >>> from knowledge.functions import find_outliers_iqr
+        >>> outlier_mask = find_outliers_iqr(df['Amount in USD'])
+        >>> outliers = df[outlier_mask]
+        >>> print(f"Found {len(outliers)} outliers ({len(outliers)/len(df)*100:.2f}%)")
+    '''
+    Q1 = series.quantile(0.25)
+    Q3 = series.quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    return (series < lower_bound) | (series > upper_bound)
+
+
+def find_outliers_zscore(df: pd.DataFrame, value_col: str, threshold: float = 2.0) -> pd.DataFrame:
+    '''
+    Identify outliers using Z-score method (standard deviations from mean).
+
+    Args:
+        df: DataFrame with numerical data
+        value_col: Column name containing the values to analyze
+        threshold: Number of standard deviations to consider an outlier (default: 2.0)
+
+    Returns:
+        DataFrame with added 'Z_Score' column, filtered to only outliers
+
+    Example:
+        >>> from knowledge.functions import find_outliers_zscore
+        >>> # Find outliers more than 2 std devs from mean
+        >>> outliers = find_outliers_zscore(df, 'Total_Amount', threshold=2.0)
+    '''
+    import numpy as np
+    df_copy = df.copy()
+    mean = df_copy[value_col].mean()
+    std = df_copy[value_col].std()
+    df_copy['Z_Score'] = np.abs((df_copy[value_col] - mean) / std)
+    return df_copy[df_copy['Z_Score'] > threshold]
+
+
+# =============================================================================
 # FILTERING FUNCTIONS
 # =============================================================================
 # Add filtering helpers here when complex filter logic is reused
