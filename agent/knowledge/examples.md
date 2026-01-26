@@ -670,3 +670,45 @@ print(exceeded[['Product', 'Fiscal Period', 'Amount in USD', 'Rolling_Avg', 'Dif
 3. Use `min_periods=1` to include early periods with less than 3 data points
 4. The `reset_index(0, drop=True)` after rolling is needed to align the rolling result back to the original DataFrame
 5. Percentage calculation: `(actual - rolling_avg) / rolling_avg * 100`
+
+---
+
+### MISTAKE: Searching for Data That Doesn't Exist in This Dataset
+
+**Query**: "What was the employee headcount in 2023?"
+
+**Wrong approach**:
+```python
+# WRONG - wasting tool calls searching for non-existent data
+if 'Employee Headcount' in df.columns:
+    headcount = df['Employee Headcount'].sum()
+else:
+    print('Column not found')  # Then checking df.columns to "verify"...
+```
+
+**Why it fails**: This P&L dataset only contains financial data (Revenue, COGS, OPEX, Other Income/Expenses). It does NOT contain:
+- Employee headcount or FTE counts
+- Individual salaries or compensation data
+- HR/workforce metrics
+- Hiring or termination data
+
+**Correct approach**:
+```python
+# CORRECT - know upfront what data exists and respond immediately
+# This is a financial P&L dataset. It contains:
+# - FSLine Statement L1: Net Revenue, Cost of Goods Sold, OPEX, Other Income/Expenses
+# - FSLine Statement L2: Detailed line items (Gross Revenue, Direct Labor, etc.)
+# - Dimensions: Product (A,B,C,D), Country, Fiscal Year/Quarter/Period
+# - Values: Amount in USD, Amount in Local Currency
+
+# For employee/HR data, the user needs a separate dataset.
+print("This dataset contains P&L financial data only.")
+print("Employee headcount is not available. You would need HR/workforce data for that.")
+```
+
+**How to recognize this trap**: Before writing code, verify the query matches the dataset scope:
+- P&L data: Revenue, COGS, OPEX, Other Income ✓
+- HR data: Headcount, salaries, hiring ✗
+- Operational data: Units sold, inventory ✗
+
+**Note**: `Headcount Expenses` is an L2 line item (dollar cost of employees), but it's NOT employee count data.
