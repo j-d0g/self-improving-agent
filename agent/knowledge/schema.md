@@ -521,3 +521,35 @@ for (product, period), group in df.groupby(['Product', 'Period']):
     results.append({'Product': product, 'Period': period, 'Variance': variance})
 variance_df = pd.DataFrame(results)
 ```
+
+### Creating Forecasts from Historical Data
+**Trigger**: User asks to "forecast" or "predict" a metric (e.g., "forecast Q4 revenue")
+**Reality**: This dataset only contains `'Actuals'` - there is NO forecast/budget data to retrieve
+**Response**: Build a simple forecast from historical data using one of these methods:
+
+1. **Simple Average**: `historical_values.mean()` - baseline approach
+2. **Linear Trend**: Use sklearn LinearRegression to extrapolate growth
+
+```python
+# Simple average forecast
+q4_historical = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+].groupby('Fiscal Year')['Amount in USD'].sum()
+
+avg_forecast = q4_historical.mean()
+print('Average-based Q4 forecast:', avg_forecast)
+
+# Linear trend forecast (better for trending data)
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+X = q4_historical.index.values.reshape(-1, 1)
+y = q4_historical.values
+model = LinearRegression().fit(X, y)
+next_year = q4_historical.index.max() + 1
+trend_forecast = model.predict([[next_year]])[0]
+print('Trend-based forecast for', next_year, ':', trend_forecast)
+```
+
+**CRITICAL**: When outputting in bash, avoid `f"${value:,.0f}"` - use single-quoted bash or `.format()` method instead!
