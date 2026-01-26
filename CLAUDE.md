@@ -6,13 +6,16 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
-**Important**: This project implements agents using the **Claude Agent SDK** (Python), not Claude Code CLI. The `agent/` directory contains a standalone Python application - do not confuse it with Claude Code CLI features like `.claude/agents/` or auto-discovery.
+**Important**: This project implements agents using the **Claude Agent SDK** (Python), not Claude Code CLI. The `agent/` and `ace/` directories contain standalone Python applications - do not confuse them with Claude Code CLI features like `.claude/agents/` or auto-discovery.
 
-## Overview
+## Implementations
 
-Self-improving financial analysis agent that answers P&L questions using pandas. The core innovation is **cross-session learning**: a two-agent pipeline (Learner → Improver) that persists learnings to files so future sessions benefit from past mistakes.
+| Directory | Architecture | Description |
+|-----------|--------------|-------------|
+| `agent/` | Learner + Improver | V1: Per-query improvement cycle |
+| `ace/` | Solver → Reflector → Curator → Aggregator | V2: ACE pipeline with batch-based learning and delta operations |
 
-## Architecture
+## V1 Architecture (agent/)
 
 ```
 ┌─────────────┐                      ┌─────────────┐
@@ -27,11 +30,23 @@ Self-improving financial analysis agent that answers P&L questions using pandas.
 - **Learner**: Answers queries, logs execution trace (thinking + tool calls + reflections)
 - **Improver**: Analyzes session traces, identifies patterns/errors, applies fixes to knowledge files (restricted to `knowledge/` only)
 
+## V2 Architecture (ace/)
+
+```
+Per Query:   SOLVER (Haiku) → REFLECTOR (Haiku)
+Per Batch:   CURATOR (programmatic)
+Per Epoch:   AGGREGATOR (Opus)
+```
+
+See `ace/README.md` for details.
+
 ## Commands
 
-All commands run from `agent/` directory:
+### V1 (agent/)
 
 ```bash
+cd agent
+
 # Single query
 python agent.py "What was revenue for Product A in Q1 2024?"
 
@@ -40,17 +55,37 @@ python evals/benchmark.py run                # 3 epochs, batch_size=2
 python evals/benchmark.py run --epochs 1 -q  # Quick test, quiet mode
 python evals/benchmark.py run --no-improve   # Baseline without improver
 python evals/benchmark.py dashboard          # View visualizations
-python evals/benchmark.py list               # List all runs
-python evals/benchmark.py compare <r1> <r2>  # Compare two runs
+```
+
+### V2 (ace/)
+
+```bash
+cd ace
+source ../agent/.venv/bin/activate  # Use shared venv
+
+# Run training
+python train.py                      # 3 epochs, batch_size=4
+python train.py --epochs 1 -q        # Quick test
+python train.py --no-improve         # Baseline without Curator
 ```
 
 ## Key Files
 
+### V1 (agent/)
 | File | Purpose |
 |------|---------|
 | `agent/agent.py` | Core LearnerAgent + background improver |
 | `agent/tracing.py` | ExecutionTrace, SessionTrace, metrics |
 | `agent/evals/benchmark.py` | Benchmarking with LLM judge + dashboard |
+
+### V2 (ace/)
+| File | Purpose |
+|------|---------|
+| `ace/solver.py` | SolverAgent (single/multi-turn query execution) |
+| `ace/reflector.py` | Answer judging + bullet tagging |
+| `ace/curator.py` | Knowledge file delta operations |
+| `ace/orchestrator.py` | Pipeline coordination |
+| `ace/train.py` | CLI entry point |
 
 ## Knowledge System
 

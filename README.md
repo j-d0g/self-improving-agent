@@ -6,6 +6,15 @@
 
 An AI agent that answers financial questions about P&L data and **learns from its mistakes**. The agent generates pandas code, logs detailed reflections, and improves its knowledge base so future queries benefit from past errors.
 
+## Implementations
+
+This repository contains two implementations:
+
+| Directory | Description |
+|-----------|-------------|
+| `agent/` | **V1**: Learner + Improver architecture. Per-query improvement cycle. |
+| `ace/` | **V2**: ACE (Agentic Counterfactual Expansion). 3-agent pipeline with Solver → Reflector → Curator. Batch-based learning with delta operations. See [ace/README.md](./ace/README.md). |
+
 ## Key Feature: Cross-Session Learning
 
 ```
