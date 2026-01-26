@@ -849,6 +849,65 @@ if not outliers_df.empty:
 
 ---
 
+### Finding Outliers Using IQR Method (Raw Values)
+
+**Query**: "Find all outliers in the dataset"
+
+**Interpretation**: Identify data points that fall outside the normal distribution using the Interquartile Range (IQR) method on raw numerical values.
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Identify numerical columns
+numerical_columns = df.select_dtypes(include=['float64', 'int64']).columns
+
+# Function to find outliers using IQR method
+def find_outliers(series):
+    Q1 = series.quantile(0.25)
+    Q3 = series.quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    return (series < lower_bound) | (series > upper_bound)
+
+# Dictionary to store outliers
+outliers = {}
+
+# Find outliers for each numerical column
+for col in numerical_columns:
+    col_outliers = df[find_outliers(df[col])]
+    if not col_outliers.empty:
+        outliers[col] = col_outliers
+
+# Print summary of outliers
+print('Outliers Summary:')
+for col, outlier_df in outliers.items():
+    print(f'\nColumn: {col}')
+    print(f'Number of outliers: {len(outlier_df)}')
+    print(f'Outlier Percentage: {len(outlier_df) / len(df) * 100:.2f}%')
+    print('\nSample of Outliers:')
+    print(outlier_df.head())
+
+# Optional: Save detailed outliers to CSV
+if outliers:
+    outlier_details = pd.concat(outliers.values())
+    outlier_details.to_csv('logs/outliers_detailed.csv', index=False)
+    print('\nDetailed outliers saved to logs/outliers_detailed.csv')
+```
+
+**Key insight**:
+1. **IQR method**: Outliers are values < Q1 - 1.5*IQR or > Q3 + 1.5*IQR (Q1 = 25th percentile, Q3 = 75th percentile)
+2. This approach works on **raw values** - useful when you want to find unusual individual records
+3. Alternative: **Z-score method** (see "Finding Outliers in the Dataset" example above) - better for aggregated data
+4. Both Amount columns (`Amount in Local Currency`, `Amount in USD`) typically show ~9-10% outliers in this dataset
+5. Save results to CSV for further investigation when dealing with thousands of outliers
+
+---
+
 ### MISTAKE: Confusion with Pandas Pivot Table Column Names After Merge
 
 **Query**: Any query comparing multiple products side-by-side using pivot tables
