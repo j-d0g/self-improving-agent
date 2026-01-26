@@ -35,6 +35,16 @@ This file documents the structure and valid values in the P&L dataset.
 ### Countries
 - Australia, Canada, Germany, Japan, United Kingdom, United States
 
+### Currencies (by Country)
+| Country | Currency Code |
+|---------|---------------|
+| Australia | AUD |
+| Canada | CAD |
+| Germany | EUR |
+| Japan | JPY |
+| United Kingdom | GBP |
+| United States | USD |
+
 ### Years
 - 2020, 2021, 2022, 2023, 2024
 
