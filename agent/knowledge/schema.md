@@ -188,6 +188,21 @@ result['Significant_Change'] = result['YoY_Change'].abs() > 5
 
 ## Edge Cases
 
+### Always Check Columns First - Don't Assume
+**Trigger**: About to write any query code
+**Reality**: Assuming column names leads to wasted tool calls and KeyErrors
+**Correct approach**: Run `df.columns.tolist()` as your FIRST action before writing ANY analysis code
+
+```python
+# FIRST - always check columns
+print(df.columns.tolist())
+# Output: ['Fiscal Year', 'Fiscal Quarter', 'Fiscal Period', 'FSLine Statement L1',
+#          'FSLine Statement L2', 'Product', 'Country', 'Currency',
+#          'Amount in Local Currency', 'Amount in USD', 'Version']
+
+# THEN write your query using actual column names
+```
+
 ### No Abbreviated Column Names (L2, Amount, etc.)
 **Trigger**: Code uses `df['L2']`, `df['L1']`, or `df['Amount']`
 **Reality**: The dataset uses full, descriptive column names - NOT abbreviations
@@ -196,6 +211,14 @@ result['Significant_Change'] = result['YoY_Change'].abs() > 5
 - `df['FSLine Statement L1']` not `df['L1']`
 - `df['Amount in USD']` not `df['Amount']`
 - If unsure, run `df.columns.tolist()` first
+
+### No Generic Column Names (Line Item, Year, Value)
+**Trigger**: Code uses generic names like `df['Line Item']`, `df['Year']`, `df['Value']`
+**Reality**: This dataset uses descriptive column names with spaces, not generic names
+**Correct approach**:
+- `df['FSLine Statement L2']` not `df['Line Item']`
+- `df['Fiscal Year']` not `df['Year']`
+- `df['Amount in USD']` not `df['Value']` or `df['Amount']`
 
 ### No 'Month' Column
 **Trigger**: Query asks about "months"
