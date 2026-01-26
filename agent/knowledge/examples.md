@@ -145,3 +145,102 @@ df.groupby(['Product', 'Country', 'Fiscal Year', 'Fiscal Period'])
 ```
 
 **How to recognize this trap**: When users say "month", translate to `Fiscal Period` (or combine with `Fiscal Year` for unique months across years).
+
+---
+
+## Positive Examples (continued)
+
+### Profit Margin with Year-over-Year Comparison
+
+**Query**: "For each product-country-year combination, calculate the profit margin and flag any that changed by more than 5 percentage points from the previous year"
+
+**Interpretation**:
+1. Calculate profit margin (Profit / Revenue × 100) for each product-country-year
+2. Compare each year to the previous year for the same product-country
+3. Flag combinations where the change exceeds ±5 percentage points
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Get Revenue, COGS, and OPEX for each product-country-year
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue'].groupby(
+    ['Product', 'Country', 'Fiscal Year']
+)['Amount in USD'].sum().reset_index(name='Revenue')
+
+cogs_df = df[df['FSLine Statement L1'] == 'Cost of Goods Sold'].groupby(
+    ['Product', 'Country', 'Fiscal Year']
+)['Amount in USD'].sum().reset_index(name='COGS')
+
+opex_df = df[df['FSLine Statement L1'] == 'Operating Expenses'].groupby(
+    ['Product', 'Country', 'Fiscal Year']
+)['Amount in USD'].sum().reset_index(name='OPEX')
+
+# Merge all components
+merged = revenue_df.merge(cogs_df, on=['Product', 'Country', 'Fiscal Year'], how='outer')
+merged = merged.merge(opex_df, on=['Product', 'Country', 'Fiscal Year'], how='outer')
+merged = merged.fillna(0)
+
+# Calculate Profit and Profit Margin
+merged['Profit'] = merged['Revenue'] - merged['COGS'] - merged['OPEX']
+merged['Profit_Margin'] = np.where(
+    merged['Revenue'] != 0,
+    merged['Profit'] / merged['Revenue'] * 100,
+    0
+)
+
+# Sort for YoY calculation
+merged = merged.sort_values(['Product', 'Country', 'Fiscal Year'])
+
+# Calculate YoY changes within each product-country group
+def calculate_yoy_change(group):
+    group = group.sort_values('Fiscal Year')
+    group['Prev_Profit_Margin'] = group['Profit_Margin'].shift(1)
+    group['Margin_Change'] = group['Profit_Margin'] - group['Prev_Profit_Margin']
+    group['Significant_Change'] = group['Margin_Change'].abs() > 5
+    return group
+
+# Apply to each group (use include_groups=False to avoid FutureWarning)
+result = merged.groupby(['Product', 'Country'], group_keys=False).apply(
+    calculate_yoy_change, include_groups=False
+)
+
+# Filter for significant changes (exclude first year which has no previous)
+significant = result[result['Significant_Change'] & result['Prev_Profit_Margin'].notna()]
+
+print(significant[['Product', 'Country', 'Fiscal Year', 'Profit_Margin', 'Prev_Profit_Margin', 'Margin_Change']])
+```
+
+**Key insight**:
+1. Build financial metrics by aggregating from L1 categories separately, then merge
+2. Use `groupby().apply()` with a helper function for YoY calculations
+3. Include `include_groups=False` in newer pandas versions to avoid deprecation warnings
+4. When flagging changes, exclude the first year (no previous year to compare)
+5. Always use `fillna(0)` after outer merges to handle missing combinations
+
+---
+
+### MISTAKE: Assuming L2 Values Match L1 Names
+
+**Query**: Any query filtering by FSLine Statement L2
+
+**Wrong approach**:
+```python
+# WRONG - 'Revenue' and 'Cost of Goods Sold' are L1 values, not L2!
+df[df['FSLine Statement L2'] == 'Revenue']
+df[df['FSLine Statement L2'] == 'Cost of Goods Sold']
+```
+
+**Why it fails**: L2 values are more granular (e.g., 'Gross Revenue', 'Direct Labor'). The L1 category names do not appear in L2.
+
+**Correct approach**:
+```python
+# CORRECT - use actual L2 values
+revenue = df[df['FSLine Statement L2'].isin(['Gross Revenue', 'Revenue Adjustment'])]['Amount in USD'].sum()
+cogs = df[df['FSLine Statement L2'].isin(['Direct Labor', 'Direct Materials', 'Manufacturing Overhead'])]['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: When you need granular line items (L2), look up the actual L2 values in schema.md. When you just need category totals, use L1 filtering instead.
