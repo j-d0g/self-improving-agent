@@ -1496,6 +1496,37 @@ print(q4_by_year)
 
 ---
 
+### MISTAKE: Summing All Amounts Without Filtering by L1 Category
+
+**Query**: "What was the revenue for Q4?"
+
+**Wrong approach**:
+```python
+# WRONG - sums ALL financial categories, not just revenue!
+q4_revenue = df[df['Fiscal Quarter'] == 'Q4']['Amount in USD'].sum()
+print(f'{q4_revenue:,.0f}')  # Returns ~215,005,308 - but this includes COGS, OPEX, etc.!
+```
+
+**Why it fails**: The `Amount in USD` column contains values for ALL financial categories (Net Revenue, Cost of Goods Sold, OPEX, Other Income/Expenses). Without filtering by `FSLine Statement L1`, you're summing everything together - not just revenue. The result is meaningless and much larger than actual revenue.
+
+**Correct approach**:
+```python
+# CORRECT - filter for Net Revenue FIRST, then sum
+q4_revenue = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: Whenever you need a specific financial metric (revenue, COGS, OPEX), you MUST filter by `FSLine Statement L1` before summing `Amount in USD`. This dataset stores all financial categories in the same column with the category type in a separate column.
+
+**Remember**:
+- For revenue: `df[df['FSLine Statement L1'] == 'Net Revenue']['Amount in USD']`
+- For COGS: `df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in USD']`
+- For OPEX: `df[df['FSLine Statement L1'] == 'OPEX']['Amount in USD']`
+
+---
+
 ### Filtering Products by Character Pattern (Vowels, Consonants, etc.)
 
 **Query**: "Revenue of all products that are vowels"
