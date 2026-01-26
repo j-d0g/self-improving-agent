@@ -785,6 +785,83 @@ if not outliers_df.empty:
 
 ---
 
+### MISTAKE: Confusion with Pandas Pivot Table Column Names After Merge
+
+**Query**: Any query comparing multiple products side-by-side using pivot tables
+
+**Wrong approach**:
+```python
+# After pivoting revenue and COGS separately and merging...
+revenue_pivot = df.pivot_table(index=['Country'], columns='Product', values='Amount')
+cogs_pivot = df.pivot_table(index=['Country'], columns='Product', values='COGS_Amount')
+
+# Rename columns BEFORE merge
+revenue_pivot = revenue_pivot.rename(columns=lambda x: f'Revenue_{x}' if x in ['A', 'B'] else x)
+
+# WRONG - after merge, columns become 'Revenue_A_x' and 'Revenue_A_y' or similar!
+merged = revenue_pivot.merge(cogs_pivot, on=['Country'])
+merged['Gross_Margin_A'] = merged['Revenue_A'] - merged['COGS_A']  # KeyError!
+```
+
+**Why it fails**: When merging two DataFrames with overlapping column names, pandas automatically adds `_x` and `_y` suffixes. After a pivot, the product names become columns, so merging two pivots creates suffixed columns like `Product A_x`, `Product A_y`.
+
+**Correct approach**:
+```python
+# Option 1: Use suffixes parameter to control naming
+merged = revenue_pivot.merge(
+    cogs_pivot,
+    on=['Country', 'Fiscal Year', 'Fiscal Period'],
+    suffixes=('_rev', '_cogs')
+)
+# Now access as: merged['Product A_rev'], merged['Product A_cogs']
+
+# Option 2: Rename AFTER merge using the actual column names
+print(merged.columns.tolist())  # See actual column names first!
+# Then reference correctly: merged['Product A_x'], merged['Product A_y']
+
+# Option 3: Don't pivot - reshape differently
+# Keep data long, merge on all grouping columns, then calculate
+metrics = revenue.merge(cogs, on=['Product', 'Country', 'Fiscal Year', 'Fiscal Period'])
+metrics['Gross_Margin'] = metrics['Revenue'] - metrics['COGS']
+# THEN pivot at the end if needed for comparison
+```
+
+**How to recognize this trap**: Any time you're merging pivot tables, check `merged.columns.tolist()` immediately after the merge to see the actual column names before trying to access them.
+
+---
+
+### MISTAKE: Assuming Product Values Are Just Letters
+
+**Query**: Any query filtering by product
+
+**Wrong approach**:
+```python
+# WRONG - Product values include the word "Product"!
+df[df['Product'] == 'A']                     # Returns empty!
+df['Product'].isin(['A', 'B', 'C', 'D'])     # Returns all False!
+revenue_pivot.rename(columns={'A': 'Revenue_A'})  # No 'A' column exists!
+```
+
+**Why it fails**: The Product column contains full names: `'Product A'`, `'Product B'`, `'Product C'`, `'Product D'` - not just the letters.
+
+**Correct approach**:
+```python
+# CORRECT - use full product names
+df[df['Product'] == 'Product A']
+df['Product'].isin(['Product A', 'Product B'])
+
+# When renaming after pivot
+revenue_pivot.rename(columns={'Product A': 'Revenue_A', 'Product B': 'Revenue_B'})
+```
+
+**How to recognize this trap**: If a product filter returns 0 rows, check the actual values:
+```python
+print(df['Product'].unique())
+# Output: ['Product A' 'Product B' 'Product C' 'Product D']
+```
+
+---
+
 ### MISTAKE: Assuming Column Names Without Checking
 
 **Query**: Any analytical query on the dataset
