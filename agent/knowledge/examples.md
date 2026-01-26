@@ -1674,6 +1674,45 @@ print('Total:', total)  # Simple, always works
 
 ---
 
+### MISTAKE: Misinterpreting "Forecast" Query When Only Actuals Exist
+
+**Query**: "What's forecast for Q4 in 2024"
+
+**Wrong approach**:
+```python
+# WRONG - treating actuals data as "forecast" AND summing ALL categories!
+q4_2024_data = df[(df['Fiscal Year'] == 2024) & (df['Fiscal Quarter'] == 'Q4')]
+forecast_2024_q4 = q4_2024_data['Amount in USD'].sum()  # Returns ~51.7M - but this is meaningless!
+print('Forecast for Q4 2024:', forecast_2024_q4)
+```
+
+**Why it fails (two problems)**:
+1. **No forecast data exists**: This dataset only contains `'Actuals'`. The result is historical data, not a forecast.
+2. **Summed ALL categories**: Without filtering by `FSLine Statement L1`, this adds Revenue + COGS + OPEX + Other together - a meaningless number!
+
+**Correct approach**:
+```python
+# CORRECT - acknowledge no forecast data exists, then clarify what we CAN provide
+print("This dataset only contains 'Actuals' - no forecast data available.")
+print("Showing ACTUAL Q4 2024 revenue instead:\n")
+
+# CRITICAL: Filter by L1 category before summing!
+q4_2024_revenue = df[
+    (df['Fiscal Year'] == 2024) &
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+
+print('Actual Q4 2024 Revenue: ${:,.2f}'.format(q4_2024_revenue))
+```
+
+**How to recognize this trap**:
+1. If user asks for "forecast" - check `df['Version'].unique()` first (only 'Actuals' exists)
+2. When summing `Amount in USD`, ALWAYS filter by `FSLine Statement L1` first
+3. Don't call actuals data a "forecast" - clarify the terminology to the user
+
+---
+
 ### Filtering Products by Character Pattern (Vowels, Consonants, etc.)
 
 **Query**: "Revenue of all products that are vowels"
