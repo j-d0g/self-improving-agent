@@ -73,6 +73,18 @@ df[df['Fiscal Year'] % 2 == 0]
 df[df['Fiscal Year'] % 2 == 1]
 ```
 
+### Fiscal Quarters
+- Values: `'Q1'`, `'Q2'`, `'Q3'`, `'Q4'` (strings, not integers)
+- Column name is `Fiscal Quarter` (**NOT** `Quarter`!)
+
+```python
+# WRONG - no 'Quarter' column exists!
+df[df['Quarter'] == 'Q4']  # KeyError!
+
+# CORRECT - use 'Fiscal Quarter'
+df[df['Fiscal Quarter'] == 'Q4']
+```
+
 ### FSLine Statement L1 (Top-level categories)
 - Net Revenue
 - Cost of Goods Sold
