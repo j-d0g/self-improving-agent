@@ -277,6 +277,33 @@ print('Total: $' + '{:.2f}'.format(total))
 
 ---
 
+### MISTAKE: Using Abbreviated Column Names
+
+**Query**: Any query involving L2 line items or Amount columns
+
+**Wrong approach**:
+```python
+# WRONG - these abbreviated column names don't exist!
+df['L2'].unique()          # KeyError: 'L2'
+df['L1'].unique()          # KeyError: 'L1'
+df['Amount']               # KeyError: 'Amount'
+```
+
+**Why it fails**: The dataset uses full, descriptive column names with spaces, not abbreviations. There is no `L2` column - it's `FSLine Statement L2`.
+
+**Correct approach**:
+```python
+# CORRECT - use full column names exactly as they appear
+df['FSLine Statement L2'].unique()    # L2 line items
+df['FSLine Statement L1'].unique()    # L1 categories
+df['Amount in USD']                   # USD amounts
+df['Amount in Local Currency']        # Local currency amounts
+```
+
+**How to recognize this trap**: If you get a KeyError, print `df.columns.tolist()` to see exact column names. The dataset columns all use Title Case with spaces.
+
+---
+
 ### MISTAKE: Case-Sensitive Column Names
 
 **Query**: Any query accessing DataFrame columns
