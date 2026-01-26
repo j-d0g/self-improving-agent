@@ -177,6 +177,15 @@ result['Significant_Change'] = result['YoY_Change'].abs() > 5
 
 ## Edge Cases
 
+### No Abbreviated Column Names (L2, Amount, etc.)
+**Trigger**: Code uses `df['L2']`, `df['L1']`, or `df['Amount']`
+**Reality**: The dataset uses full, descriptive column names - NOT abbreviations
+**Correct approach**: Always use full column names:
+- `df['FSLine Statement L2']` not `df['L2']`
+- `df['FSLine Statement L1']` not `df['L1']`
+- `df['Amount in USD']` not `df['Amount']`
+- If unsure, run `df.columns.tolist()` first
+
 ### No 'Month' Column
 **Trigger**: Query asks about "months"
 **Reality**: The dataset has `Fiscal Period` (1-12) and `Fiscal Quarter`, but no 'Month' column
