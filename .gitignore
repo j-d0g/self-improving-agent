@@ -6,4 +6,5 @@ agent/.env
 .idea/
 .DS_Store
 verified_agent/
-agent/logs/
+logs/
+sdk_docs/
