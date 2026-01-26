@@ -61,6 +61,18 @@ df['Product'].isin(['Product A', 'Product B'])
 ### Years
 - 2020, 2021, 2022, 2023, 2024
 
+**Even vs Odd Years**:
+- Even years (divisible by 2): 2020, 2022, 2024
+- Odd years: 2021, 2023
+
+```python
+# Filter for even years
+df[df['Fiscal Year'] % 2 == 0]
+
+# Filter for odd years
+df[df['Fiscal Year'] % 2 == 1]
+```
+
 ### FSLine Statement L1 (Top-level categories)
 - Net Revenue
 - Cost of Goods Sold
