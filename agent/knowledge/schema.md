@@ -215,6 +215,35 @@ pivot_df['Profit_Margin'] = (pivot_df['Net_Income'] / pivot_df['Net Revenue'] * 
 - **Pivot approach**: Cleaner syntax, all L1 values become columns, but column names must exactly match L1 values
 - **Merge approach**: More explicit, better for complex filtering, easier to debug
 
+## Data Patterns and Insights
+
+### Seasonal Revenue Patterns
+
+The dataset shows consistent seasonal patterns across all products:
+
+| Quarter | % of Annual Revenue | Characteristic |
+|---------|---------------------|----------------|
+| Q1 | ~27% | Strong (new year budgets) |
+| Q2 | ~22-23% | Weaker |
+| Q3 | ~22-23% | Weaker |
+| Q4 | ~27% | Strong (end-of-year/holiday) |
+
+**Key observations**:
+- All products follow this same seasonal pattern
+- Q1 and Q4 together account for ~54% of annual revenue
+- Q2 and Q3 together account for ~46% of annual revenue
+- Variance is slightly higher in Q1 and Q4 (more fluctuation in strong quarters)
+
+**Code to verify**:
+```python
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue']
+quarterly_pct = revenue_df.groupby(['Fiscal Quarter', 'Product'])['Amount in USD'].sum().unstack()
+annual = revenue_df.groupby('Product')['Amount in USD'].sum()
+print(quarterly_pct.divide(annual, axis=1) * 100)  # Shows ~27/23/22/27 pattern
+```
+
+---
+
 ## Edge Cases
 
 ### Always Check Columns First - Don't Assume
