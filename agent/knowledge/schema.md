@@ -12,6 +12,7 @@ This file documents the structure and valid values in the P&L dataset.
 |--------|-------------|
 | Product | Product identifier |
 | Country | Country name |
+| Currency | Local currency code (AUD, CAD, EUR, JPY, GBP, USD) |
 | Fiscal Year | Year (numeric) |
 | Fiscal Quarter | Q1, Q2, Q3, Q4 |
 | Fiscal Period | Period within quarter |
@@ -19,6 +20,12 @@ This file documents the structure and valid values in the P&L dataset.
 | FSLine Statement L2 | Detailed line item |
 | Amount in USD | USD value |
 | Amount in Local Currency | Local currency value |
+| Version | Data version (always "Actuals" in this dataset) |
+
+**IMPORTANT - Column Names Are Case-Sensitive!**
+- Use `df['Country']` NOT `df['country']`
+- Use `df['Fiscal Year']` NOT `df['fiscal_year']`
+- All column names use Title Case with spaces
 
 ## Valid Values
 
