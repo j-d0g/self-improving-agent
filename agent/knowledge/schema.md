@@ -37,6 +37,35 @@ This file documents the structure and valid values in the P&L dataset.
 - Operating Expenses
 - Other Income/Expenses
 
+### FSLine Statement L2 (Detailed line items)
+
+**IMPORTANT**: When filtering by L2, use the exact values below. There is NO L2 value called "Revenue" or "Cost of Goods Sold" - those are L1 values.
+
+| L1 Category | L2 Line Items |
+|-------------|---------------|
+| Net Revenue | `Gross Revenue`, `Returns and Refunds`, `Revenue Adjustment` |
+| Cost of Goods Sold | `Direct Labor`, `Direct Materials`, `Manufacturing Overhead` |
+| Operating Expenses | `General & Administrative`, `Headcount Expenses`, `IT Expenses`, `Marketing Expenses`, `R&D Expenses`, `Sales Expenses` |
+| Other Income/Expenses | `Foreign Exchange Gain/Loss`, `Interest Expense`, `Interest Income` |
+
+**To get Revenue using L2** (if L1 filtering is not enough):
+```python
+revenue = df[df['FSLine Statement L2'].isin(['Gross Revenue', 'Revenue Adjustment'])]['Amount in USD'].sum()
+```
+
+**To get COGS using L2**:
+```python
+cogs = df[df['FSLine Statement L2'].isin(['Direct Labor', 'Direct Materials', 'Manufacturing Overhead'])]['Amount in USD'].sum()
+```
+
+**To get OPEX using L2**:
+```python
+opex = df[df['FSLine Statement L2'].isin([
+    'General & Administrative', 'Headcount Expenses', 'IT Expenses',
+    'Marketing Expenses', 'R&D Expenses', 'Sales Expenses'
+])]['Amount in USD'].sum()
+```
+
 ### Column Name Reference
 **IMPORTANT**: The dataset does NOT have columns named 'Revenue' or 'COGS'.
 The correct column names are:
