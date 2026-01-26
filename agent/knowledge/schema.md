@@ -49,7 +49,28 @@ To get COGS: `df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in U
 
 ## Profitability Calculations
 
-<!-- Improver: Add formulas as they are discovered -->
+### Gross Margin / Gross Profit
+**Formula**: Gross Margin = Net Revenue - Cost of Goods Sold
+
+```python
+# Calculate gross margin for a filtered scope
+revenue = df[df['FSLine Statement L1'] == 'Net Revenue']['Amount in USD'].sum()
+cogs = df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in USD'].sum()
+gross_margin = revenue - cogs
+```
+
+### Gross Margin by Product/Country/Period
+When comparing products, aggregate by the grouping columns first:
+
+```python
+# Example: Get revenue by Product and Country
+revenue_by_group = (
+    df[df['FSLine Statement L1'] == 'Net Revenue']
+    .groupby(['Product', 'Country', 'Fiscal Year', 'Fiscal Period'])['Amount in USD']
+    .sum()
+    .reset_index()
+)
+```
 
 ## Edge Cases
 
