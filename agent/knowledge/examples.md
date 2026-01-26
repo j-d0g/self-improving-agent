@@ -396,6 +396,52 @@ print(df['FSLine Statement L1'].unique())
 
 ## Positive Examples (continued)
 
+### Seasonal Pattern Analysis
+
+**Query**: "What are the seasonal patterns in this data?"
+
+**Interpretation**: Analyze revenue (or other metrics) across fiscal quarters and periods to identify recurring seasonal trends and variability.
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Filter for Net Revenue (NOT 'Revenue' - use 'Net Revenue')
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue']
+
+# Seasonal Analysis: Average Quarterly Revenue by Product
+quarterly_revenue = revenue_df.groupby(['Fiscal Year', 'Fiscal Quarter', 'Product'])['Amount in USD'].sum().reset_index()
+quarterly_pivot = quarterly_revenue.pivot_table(
+    index='Fiscal Quarter',
+    columns='Product',
+    values='Amount in USD',
+    aggfunc='mean'
+).round(2)
+
+print('Average Quarterly Revenue by Product:\n')
+print(quarterly_pivot)
+
+# Seasonal Variability Analysis (Coefficient of Variation)
+quarterly_cv = quarterly_revenue.groupby('Fiscal Quarter')['Amount in USD'].apply(
+    lambda x: x.std() / x.mean() * 100
+).round(2)
+print('\nQuarterly Revenue Variability (CV%):\n')
+print(quarterly_cv)
+```
+
+**Key insight**:
+1. **CRITICAL**: The dataset has NO 'date' column - use `Fiscal Year`, `Fiscal Quarter`, `Fiscal Period` directly
+2. **CRITICAL**: Use `'Net Revenue'` not `'Revenue'` for L1 filtering - 'Revenue' returns empty DataFrame
+3. **CRITICAL**: matplotlib is NOT available - use text-based pivot table output
+4. Use `pivot_table` with `aggfunc='mean'` to average across years for seasonal patterns
+5. Coefficient of Variation (CV) = std/mean * 100 measures seasonal variability
+6. Always inspect columns and unique L1 values before writing analysis code
+
+---
+
 ### Rolling Average with Threshold Detection
 
 **Query**: "Calculate the 3-month rolling average of OPEX for each product and identify when any exceeded its rolling average by more than 10%"
