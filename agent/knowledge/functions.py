@@ -167,6 +167,112 @@ def calculate_rolling_average_with_threshold(
 
 
 # =============================================================================
+# COMPARISON FUNCTIONS
+# =============================================================================
+# Add comparison helpers here for multi-product/multi-metric analysis
+
+def compare_products_on_metrics(
+    df: pd.DataFrame,
+    product_a: str,
+    product_b: str,
+    group_cols: List[str] = None
+) -> pd.DataFrame:
+    '''
+    Compare two products on Revenue, COGS, and Gross Margin.
+
+    This function handles the complexity of:
+    1. Filtering by FSLine Statement L1 for each metric
+    2. Aggregating by product and grouping columns
+    3. Merging and pivoting to compare products side-by-side
+    4. Calculating gross margin percentage
+
+    Args:
+        df: Full P&L DataFrame
+        product_a: First product name (e.g., 'Product A')
+        product_b: Second product name (e.g., 'Product B')
+        group_cols: Columns to group by (default: ['Country', 'Fiscal Year', 'Fiscal Period'])
+
+    Returns:
+        DataFrame with columns:
+        - group_cols (Country, Fiscal Year, Fiscal Period)
+        - Revenue_A, Revenue_B
+        - COGS_A, COGS_B
+        - Gross_Margin_Pct_A, Gross_Margin_Pct_B
+
+    Example:
+        >>> from knowledge.functions import compare_products_on_metrics
+        >>> comparison = compare_products_on_metrics(df, 'Product A', 'Product B')
+        >>> # Find where A has higher revenue but lower margin than B
+        >>> result = comparison[
+        ...     (comparison['Revenue_A'] > comparison['Revenue_B']) &
+        ...     (comparison['Gross_Margin_Pct_A'] < comparison['Gross_Margin_Pct_B'])
+        ... ]
+    '''
+    if group_cols is None:
+        group_cols = ['Country', 'Fiscal Year', 'Fiscal Period']
+
+    # Filter for the two products
+    df_filtered = df[df['Product'].isin([product_a, product_b])]
+
+    # Get Revenue by Product and grouping columns
+    revenue = (
+        df_filtered[df_filtered['FSLine Statement L1'] == 'Net Revenue']
+        .groupby(['Product'] + group_cols)['Amount in USD']
+        .sum()
+        .reset_index()
+        .rename(columns={'Amount in USD': 'Revenue'})
+    )
+
+    # Get COGS by Product and grouping columns
+    cogs = (
+        df_filtered[df_filtered['FSLine Statement L1'] == 'Cost of Goods Sold']
+        .groupby(['Product'] + group_cols)['Amount in USD']
+        .sum()
+        .reset_index()
+        .rename(columns={'Amount in USD': 'COGS'})
+    )
+
+    # Merge Revenue and COGS
+    metrics = revenue.merge(cogs, on=['Product'] + group_cols, how='outer').fillna(0)
+
+    # Calculate Gross Margin Percentage
+    metrics['Gross_Margin_Pct'] = (
+        (metrics['Revenue'] - metrics['COGS']) / metrics['Revenue'] * 100
+    ).fillna(0)
+
+    # Pivot to get side-by-side comparison
+    pivot_rev = metrics.pivot_table(
+        index=group_cols,
+        columns='Product',
+        values='Revenue'
+    ).reset_index()
+    pivot_rev.columns = [col if col in group_cols else f'Revenue_{col.replace("Product ", "")}'
+                         for col in pivot_rev.columns]
+
+    pivot_cogs = metrics.pivot_table(
+        index=group_cols,
+        columns='Product',
+        values='COGS'
+    ).reset_index()
+    pivot_cogs.columns = [col if col in group_cols else f'COGS_{col.replace("Product ", "")}'
+                          for col in pivot_cogs.columns]
+
+    pivot_margin = metrics.pivot_table(
+        index=group_cols,
+        columns='Product',
+        values='Gross_Margin_Pct'
+    ).reset_index()
+    pivot_margin.columns = [col if col in group_cols else f'Gross_Margin_Pct_{col.replace("Product ", "")}'
+                            for col in pivot_margin.columns]
+
+    # Merge all pivots
+    result = pivot_rev.merge(pivot_cogs, on=group_cols)
+    result = result.merge(pivot_margin, on=group_cols)
+
+    return result
+
+
+# =============================================================================
 # FILTERING FUNCTIONS
 # =============================================================================
 # Add filtering helpers here when complex filter logic is reused
