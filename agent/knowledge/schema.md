@@ -188,3 +188,25 @@ result['Significant_Change'] = result['YoY_Change'].abs() > 5
 revenue = df[df['FSLine Statement L1'] == 'Net Revenue']['Amount in USD'].sum()
 cogs = df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in USD'].sum()
 ```
+
+### Foreign Exchange Impact Analysis
+**Trigger**: Query asks about FX impact, currency effects, or foreign exchange
+**Reality**: The dataset has `Amount in Local Currency` and `Amount in USD` columns, plus an explicit `Foreign Exchange Gain/Loss` line item under Other Income/Expenses
+
+**WRONG approach** - Do NOT calculate FX variance as difference between local and USD amounts:
+```python
+# WRONG - you cannot meaningfully subtract amounts in different currencies!
+df['FX_Variance'] = np.abs(df['Amount in USD'] - df['Amount in Local Currency'])
+```
+
+**CORRECT approach** - Use the Foreign Exchange Gain/Loss line item:
+```python
+# CORRECT - use the explicit FX line item
+fx_impact = df[df['FSLine Statement L2'] == 'Foreign Exchange Gain/Loss'].groupby(
+    ['Country', 'Fiscal Year']
+)['Amount in USD'].sum()
+
+print(fx_impact)
+```
+
+This gives you the actual recorded FX gains/losses by country and year.
