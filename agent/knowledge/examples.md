@@ -639,6 +639,70 @@ print(final_results_sorted.to_string(index=False))
 
 ---
 
+### Variance Analysis with Manual Loop (Avoiding GroupBy Ambiguity)
+
+**Query**: "Perform a variance analysis comparing each month's actuals against the yearly average for all L2 line items"
+
+**Interpretation**: For each L2 line item, calculate how each fiscal period deviates from the L2's overall yearly average, expressed as a percentage variance.
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# CRITICAL: Use 'Actuals' (with 's'), not 'Actual'
+df_actuals = df[df['Version'] == 'Actuals']
+
+# Get unique L2 items and fiscal periods
+l2_items = df_actuals['FSLine Statement L2'].unique()
+fiscal_periods = df_actuals['Fiscal Period'].unique()
+
+# Compute yearly average for each L2 item
+yearly_averages = df_actuals.groupby('FSLine Statement L2')['Amount in USD'].mean()
+
+# Use manual loop to avoid pandas groupby.apply() ambiguity
+results = []
+for l2_item in l2_items:
+    item_data = df_actuals[df_actuals['FSLine Statement L2'] == l2_item]
+    yearly_avg = yearly_averages[l2_item]
+
+    for period in fiscal_periods:
+        period_data = item_data[item_data['Fiscal Period'] == period]
+        if not period_data.empty:
+            period_amount = period_data['Amount in USD'].values[0]
+            variance_pct = ((period_amount - yearly_avg) / yearly_avg * 100)
+            results.append({
+                'FSLine Statement L2': l2_item,
+                'Fiscal Period': period,
+                'Amount in USD': period_amount,
+                'Yearly Average': yearly_avg,
+                'Variance Percentage': variance_pct
+            })
+
+# Convert to DataFrame for analysis
+variance_df = pd.DataFrame(results)
+
+# Now compute summary stats - this works because we built a fresh DataFrame
+summary = variance_df.groupby('FSLine Statement L2')['Variance Percentage'].agg([
+    'count', 'mean', 'min', 'max', 'std'
+]).sort_values('std', ascending=False)
+
+print('Variance Analysis Summary by L2 Line Item:')
+print(summary)
+```
+
+**Key insight**:
+1. **CRITICAL**: Use `'Actuals'` (with 's') not `'Actual'` for Version filtering - singular returns empty DataFrame
+2. **CRITICAL**: Use `'FSLine Statement L2'` not `'L2'` - abbreviated column names don't exist
+3. Use manual loop instead of `groupby().apply()` to avoid index/column ambiguity errors
+4. Pre-compute yearly averages with a simple groupby before the loop
+5. Build a fresh DataFrame from the results list - this avoids any index ambiguity issues
+6. Variance formula: `(period_value - yearly_avg) / yearly_avg * 100`
+
+---
+
 ### Rolling Average with Threshold Detection
 
 **Query**: "Calculate the 3-month rolling average of OPEX for each product and identify when any exceeded its rolling average by more than 10%"
