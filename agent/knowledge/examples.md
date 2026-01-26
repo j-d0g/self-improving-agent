@@ -1108,6 +1108,39 @@ result = df.groupby(['Product', 'Country'], group_keys=False).apply(
 
 ---
 
+### MISTAKE: Filtering L2 with 'Operating Expenses' Which Doesn't Exist
+
+**Query**: "Calculate OPEX for each product" or any query involving operating expenses
+
+**Wrong approach**:
+```python
+# WRONG - 'Operating Expenses' does NOT exist as an L2 value!
+opex_df = df[df['FSLine Statement L2'] == 'Operating Expenses']  # Returns empty DataFrame!
+```
+
+**Why it fails**: The FSLine Statement L2 column contains granular line items like 'General & Administrative', 'Marketing Expenses', etc. There is NO L2 value called 'Operating Expenses'. That terminology exists only at the conceptual level - the actual L1 value is `'OPEX'`.
+
+**Correct approaches**:
+```python
+# CORRECT Option 1 (PREFERRED) - Use L1 filtering with 'OPEX'
+opex_df = df[df['FSLine Statement L1'] == 'OPEX']
+
+# CORRECT Option 2 - Use L2 with the actual component values
+opex_items = [
+    'General & Administrative', 'Headcount Expenses', 'IT Expenses',
+    'Marketing Expenses', 'R&D Expenses', 'Sales Expenses'
+]
+opex_df = df[df['FSLine Statement L2'].isin(opex_items)]
+```
+
+**How to recognize this trap**: If your OPEX filter returns 0 rows, you probably used the wrong column or value:
+- L1 uses: `'OPEX'` (not 'Operating Expenses')
+- L2 uses: Individual expense categories (not 'Operating Expenses')
+
+Print unique values to verify: `print(df['FSLine Statement L2'].unique())`
+
+---
+
 ### MISTAKE: Pandas GroupBy.apply() Creating Index/Column Ambiguity
 
 **Query**: Any variance analysis or transformation that uses groupby().apply() followed by another groupby
