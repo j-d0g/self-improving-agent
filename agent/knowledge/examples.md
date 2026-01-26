@@ -1264,3 +1264,40 @@ summary = variance_df.groupby('FSLine Statement L2')['Variance Percentage'].agg(
 ```
 
 **How to recognize this trap**: If you get a `ValueError: 'X' is both an index level and a column label` after using groupby().apply(), switch to a manual loop approach. This is especially common in variance analysis patterns.
+
+---
+
+## Positive Examples (continued)
+
+### Filtering Products by Character Pattern (Vowels, Consonants, etc.)
+
+**Query**: "Revenue of all products that are vowels"
+
+**Interpretation**: Find total revenue for products whose letter identifier (A, B, C, D) is a vowel. In this dataset, only Product A qualifies since A is the only vowel among A, B, C, D.
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Products in dataset: 'Product A', 'Product B', 'Product C', 'Product D'
+# Vowels among A, B, C, D: only A
+# CRITICAL: Product values include "Product " prefix!
+vowel_products = ['Product A']
+
+# For total revenue, use L1 filtering (Net Revenue includes all revenue components)
+revenue = df[(df['Product'].isin(vowel_products)) &
+             (df['FSLine Statement L1'] == 'Net Revenue')]['Amount in USD'].sum()
+
+print('Total Revenue for Vowel Products: ${:,.2f}'.format(revenue))
+```
+
+**Key insight**:
+1. **CRITICAL**: Products are named 'Product A', 'Product B', etc. - NOT just 'A', 'B', 'C', 'D'
+2. **CRITICAL**: For revenue, use `FSLine Statement L1 == 'Net Revenue'` (preferred) or `FSLine Statement L2 == 'Gross Revenue'`
+3. **CRITICAL**: There is NO column named 'Revenue' - values are in `Amount in USD`
+4. When running in bash, avoid `$` in f-strings - use `.format()` instead: `'${:,.2f}'.format(value)`
+5. Among the 4 products (A, B, C, D), only A is a vowel. If user asks for consonants, it would be Product B, C, D.
+
+---
