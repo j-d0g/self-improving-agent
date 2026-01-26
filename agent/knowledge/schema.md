@@ -101,6 +101,61 @@ revenue_by_group = (
 )
 ```
 
+### Profit Margin (Operating Profit Margin)
+**Formula**: Profit Margin = (Revenue - COGS - OPEX) / Revenue × 100
+
+```python
+import numpy as np
+
+# Calculate profit margin for grouped data
+# Step 1: Get aggregated data by product-country-year
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue'].groupby(
+    ['Product', 'Country', 'Fiscal Year']
+)['Amount in USD'].sum().reset_index(name='Revenue')
+
+cogs_df = df[df['FSLine Statement L1'] == 'Cost of Goods Sold'].groupby(
+    ['Product', 'Country', 'Fiscal Year']
+)['Amount in USD'].sum().reset_index(name='COGS')
+
+opex_df = df[df['FSLine Statement L1'] == 'Operating Expenses'].groupby(
+    ['Product', 'Country', 'Fiscal Year']
+)['Amount in USD'].sum().reset_index(name='OPEX')
+
+# Step 2: Merge
+merged = revenue_df.merge(cogs_df, on=['Product', 'Country', 'Fiscal Year'], how='outer')
+merged = merged.merge(opex_df, on=['Product', 'Country', 'Fiscal Year'], how='outer')
+merged = merged.fillna(0)
+
+# Step 3: Calculate profit and margin
+merged['Profit'] = merged['Revenue'] - merged['COGS'] - merged['OPEX']
+merged['Profit_Margin'] = np.where(
+    merged['Revenue'] != 0,
+    merged['Profit'] / merged['Revenue'] * 100,
+    0
+)
+```
+
+### Year-over-Year Changes
+To calculate YoY changes and flag significant deltas:
+
+```python
+# Calculate YoY change for a metric (e.g., profit margin)
+def calculate_yoy_change(group):
+    group = group.sort_values('Fiscal Year')
+    group['Prev_Value'] = group['Profit_Margin'].shift(1)
+    group['YoY_Change'] = group['Profit_Margin'] - group['Prev_Value']
+    return group
+
+# Apply to each product-country combination
+# NOTE: Use include_groups=False to avoid FutureWarning in newer pandas
+result = merged.groupby(['Product', 'Country'], group_keys=False).apply(
+    calculate_yoy_change, include_groups=False
+)
+
+# Flag significant changes (e.g., > 5 percentage points)
+result['Significant_Change'] = result['YoY_Change'].abs() > 5
+```
+
 ## Edge Cases
 
 ### No 'Month' Column
