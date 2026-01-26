@@ -8,3 +8,6 @@ agent/.env
 verified_agent/
 logs/
 sdk_docs/
+**/evals/benchmarks/
+**/evals/dashboards/
+**/archive/
