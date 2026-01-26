@@ -247,6 +247,42 @@ cogs = df[df['FSLine Statement L2'].isin(['Direct Labor', 'Direct Materials', 'M
 
 ---
 
+### MISTAKE: Using 'Revenue' Instead of 'Gross Revenue' for L2 Filtering
+
+**Query**: Any query about revenue that filters by FSLine Statement L2
+
+**Wrong approach**:
+```python
+# WRONG - there is no L2 value called 'Revenue'!
+revenue_df = df[df['FSLine Statement L2'] == 'Revenue']  # Returns empty DataFrame!
+```
+
+**Why it fails**: At the L2 level, the revenue line item is named `'Gross Revenue'`, not `'Revenue'`. The word 'Revenue' appears in the L1 value (`'Net Revenue'`), but at L2 it's more specific. Filtering L2 for 'Revenue' returns 0 rows.
+
+**Correct approaches**:
+```python
+# CORRECT Option 1 (PREFERRED for total revenue) - Use L1 filtering
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue']
+
+# CORRECT Option 2 (for granular L2 analysis) - Use 'Gross Revenue'
+gross_revenue_df = df[df['FSLine Statement L2'] == 'Gross Revenue']
+
+# CORRECT Option 3 (for all revenue components at L2)
+revenue_df = df[df['FSLine Statement L2'].isin(['Gross Revenue', 'Returns and Refunds', 'Revenue Adjustment'])]
+```
+
+**How to recognize this trap**: If your revenue filter returns 0 rows or an empty DataFrame:
+1. Check if you're using L2 with 'Revenue' - it should be 'Gross Revenue'
+2. Consider using L1 with 'Net Revenue' instead for total revenue
+3. Verify L2 values with: `print(df['FSLine Statement L2'].unique())`
+
+**L2 Revenue Components**:
+- `'Gross Revenue'` - Main revenue line item
+- `'Returns and Refunds'` - Deductions from revenue
+- `'Revenue Adjustment'` - Other revenue adjustments
+
+---
+
 ### MISTAKE: Using Dollar Signs in Python F-Strings Inside Bash Commands
 
 **Query**: Any query where you format output with currency symbols
