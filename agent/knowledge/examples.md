@@ -989,6 +989,84 @@ metrics['Gross_Margin'] = metrics['Revenue'] - metrics['COGS']
 
 ---
 
+### Filtering by Even/Odd Years
+
+**Query**: "Revenue of all even years"
+
+**Interpretation**: Calculate total revenue for years that are divisible by 2 (2020, 2022, 2024 in this dataset).
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# CRITICAL: Column is 'Fiscal Year' NOT 'Year'!
+# Even years: 2020, 2022, 2024 (years divisible by 2)
+even_years_revenue = df[
+    (df['Fiscal Year'] % 2 == 0) &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+
+# Odd years: 2021, 2023
+odd_years_revenue = df[
+    (df['Fiscal Year'] % 2 == 1) &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+
+print('Even Years Revenue: $' + str(round(even_years_revenue, 2)))
+print('Odd Years Revenue: $' + str(round(odd_years_revenue, 2)))
+```
+
+**Key insight**:
+1. **CRITICAL**: Use `Fiscal Year` NOT `Year` - there is no 'Year' column
+2. Use modulo operator `% 2 == 0` for even years, `% 2 == 1` for odd years
+3. Available years are 2020, 2021, 2022, 2023, 2024
+4. Combine year filter with L1 filter using `&` (must use parentheses around each condition)
+5. When outputting currency in bash, use string concatenation `'$' + str(value)` instead of f-strings with `$` to avoid bash variable interpretation
+
+---
+
+### Comparing Two Subsets (X vs Y Queries)
+
+**Query**: "Revenue of all even years vs revenue of all vowels"
+
+**Interpretation**: Calculate and compare two distinct revenue totals:
+1. Revenue for even years (2020, 2022, 2024)
+2. Revenue for products with vowels in their name (Product A - since A is the only vowel among A, B, C, D)
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# CRITICAL: Filter for Net Revenue first
+revenue_df = df[df['FSLine Statement L1'] == 'Net Revenue']
+
+# Subset 1: Even years (2020, 2022, 2024)
+# CRITICAL: Column is 'Fiscal Year' NOT 'Year'!
+even_years_revenue = revenue_df[revenue_df['Fiscal Year'] % 2 == 0]['Amount in USD'].sum()
+
+# Subset 2: Products with vowels (only Product A has a vowel - A)
+# Note: Product C's letter 'C' is a consonant, not a vowel
+# CRITICAL: Products are 'Product A', 'Product B', etc. - NOT just 'A', 'B'!
+vowel_products = ['Product A']
+vowel_revenue = revenue_df[revenue_df['Product'].isin(vowel_products)]['Amount in USD'].sum()
+
+print('Even Years Revenue: $' + str(round(even_years_revenue, 2)))
+print('Vowel Products Revenue: $' + str(round(vowel_revenue, 2)))
+```
+
+**Key insight**:
+1. For "X vs Y" queries, identify what each subset represents and calculate separately
+2. **CRITICAL**: `Fiscal Year` not `Year`, `Net Revenue` not `Revenue`, `Product A` not `A`
+3. Among products A, B, C, D - only A is a vowel (A, E, I, O, U are vowels)
+4. Avoid f-strings with `$` in bash - use `'$' + str(value)` or `.format()` instead
+5. Pre-filter to `Net Revenue` once, then apply different filters for each subset
+
+---
+
 ### MISTAKE: Assuming Product Values Are Just Letters
 
 **Query**: Any query filtering by product
