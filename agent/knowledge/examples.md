@@ -727,3 +727,91 @@ print("Employee headcount is not available. You would need HR/workforce data for
 - Operational data: Units sold, inventory ✗
 
 **Note**: `Headcount Expenses` is an L2 line item (dollar cost of employees), but it's NOT employee count data.
+
+---
+
+## Positive Examples (continued)
+
+### Finding Outliers in the Dataset
+
+**Query**: "Find all outliers in the dataset"
+
+**Interpretation**: Identify data points that are statistically unusual compared to the overall distribution, typically using Z-score or IQR methods.
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv("data/FUN_company_pl_actuals_dataset.csv")
+
+# Aggregate by meaningful dimensions (L1, Product, Country, Year)
+df_aggregated = df.groupby(
+    ["FSLine Statement L1", "Product", "Country", "Fiscal Year"]
+)["Amount in USD"].sum().reset_index()
+df_aggregated.columns = ["L1", "Product", "Country", "Year", "Total_Amount"]
+
+# Calculate Z-scores (number of standard deviations from mean)
+df_aggregated["Z_Score"] = np.abs(
+    (df_aggregated["Total_Amount"] - df_aggregated["Total_Amount"].mean())
+    / df_aggregated["Total_Amount"].std()
+)
+
+# Find outliers (Z-score > 2 = more than 2 standard deviations from mean)
+outliers_df = df_aggregated[df_aggregated["Z_Score"] > 2].sort_values("Total_Amount")
+
+# Print results
+print("Outliers in Financial Data:\n")
+print(outliers_df[["L1", "Product", "Country", "Year", "Total_Amount", "Z_Score"]].to_string(index=False))
+
+# Summary statistics
+if not outliers_df.empty:
+    print(f"\n\nTotal Outliers Found: {len(outliers_df)}")
+    print(f"Minimum Outlier Amount: ${outliers_df.Total_Amount.min():,.2f}")
+    print(f"Maximum Outlier Amount: ${outliers_df.Total_Amount.max():,.2f}")
+
+    # Distribution by dimension
+    print("\nOutlier Distribution by L1:")
+    print(outliers_df["L1"].value_counts())
+```
+
+**Key insight**:
+1. **CRITICAL**: Run this via single-quoted bash command: `python3 -c '...'` with double quotes inside
+2. **CRITICAL**: The dataset does NOT have columns named 'Revenue' or 'COGS' - use `Amount in USD` for values
+3. Aggregate first before outlier detection - raw rows are not meaningful for outlier analysis
+4. Z-score method: values > 2 standard deviations from mean are outliers
+5. Alternative: IQR method (Q1 - 1.5*IQR to Q3 + 1.5*IQR defines normal range)
+6. Always check `df.columns.tolist()` BEFORE writing analysis code to avoid KeyErrors
+
+---
+
+### MISTAKE: Assuming Column Names Without Checking
+
+**Query**: Any analytical query on the dataset
+
+**Wrong approach**:
+```python
+# WRONG - assuming column names exist without verifying
+df['Revenue']           # KeyError!
+df['COGS']              # KeyError!
+df['OPEX']              # KeyError!
+df['Other Income']      # KeyError!
+```
+
+**Why it fails**: These are CONCEPTUAL names, not actual column names. The dataset stores financial categories in `FSLine Statement L1` and values in `Amount in USD`.
+
+**Correct approach**:
+```python
+# CORRECT - first check columns, then use actual names
+print(df.columns.tolist())
+# Output: ['Fiscal Year', 'Fiscal Quarter', 'Fiscal Period', 'FSLine Statement L1',
+#          'FSLine Statement L2', 'Product', 'Country', 'Currency',
+#          'Amount in Local Currency', 'Amount in USD', 'Version']
+
+# Then filter by L1 category
+revenue = df[df['FSLine Statement L1'] == 'Net Revenue']['Amount in USD'].sum()
+cogs = df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in USD'].sum()
+opex = df[df['FSLine Statement L1'] == 'OPEX']['Amount in USD'].sum()
+```
+
+**How to recognize this trap**: If you're about to access a column that sounds like a financial metric (Revenue, COGS, Profit, etc.), STOP. This dataset uses a normalized format where all values are in `Amount in USD` and the metric type is in `FSLine Statement L1/L2`.
