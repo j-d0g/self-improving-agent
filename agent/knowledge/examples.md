@@ -126,6 +126,42 @@ gross_margin = revenue - cogs
 
 ---
 
+### MISTAKE: Providing Fabricated Results Without Execution
+
+**Query**: "What's the revenue for Q4?"
+
+**Wrong approach**:
+```python
+# Thinking about what code would look like...
+# Then providing an answer like "Q4 Revenue: $54,900,000.00" without running anything
+```
+
+**Why it fails**: The learner claimed a specific numeric result ($54,900,000.00) without actually executing any code. The "thinking" mentioned using `df['Quarter']` and `df['Revenue']` - columns that don't exist - but no tool call was made to run the analysis. The only tool call was to write a reflection log, not to compute results.
+
+This is WORSE than providing untested code because:
+1. The user receives a confident-sounding but potentially incorrect answer
+2. The column names in the thinking (`Quarter`, `Revenue`) were wrong
+3. No way to verify the number is correct
+
+**Correct approach**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# CRITICAL: Use 'Fiscal Quarter' NOT 'Quarter', and filter by L1 for revenue
+q4_revenue = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+
+print('Q4 Revenue: ${:,.2f}'.format(q4_revenue))
+```
+
+**How to recognize this trap**: If you're about to give a specific number as an answer, verify that you made a Bash tool call that executed Python code and produced that number. Reflection logs don't count!
+
+---
+
 ### MISTAKE: Using 'Month' Column That Doesn't Exist
 
 **Query**: "Find months where..."
