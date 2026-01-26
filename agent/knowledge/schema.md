@@ -51,7 +51,7 @@ This file documents the structure and valid values in the P&L dataset.
 ### FSLine Statement L1 (Top-level categories)
 - Net Revenue
 - Cost of Goods Sold
-- Operating Expenses
+- OPEX (**NOT** "Operating Expenses" - use exactly `'OPEX'`)
 - Other Income/Expenses
 
 ### FSLine Statement L2 (Detailed line items)
