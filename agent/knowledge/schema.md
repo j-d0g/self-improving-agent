@@ -22,10 +22,12 @@ This file documents the structure and valid values in the P&L dataset.
 | Amount in Local Currency | Local currency value |
 | Version | Data version (always "Actuals" in this dataset) |
 
-**IMPORTANT - Column Names Are Case-Sensitive!**
+**IMPORTANT - Column Names Are Case-Sensitive AND Full Names!**
 - Use `df['Country']` NOT `df['country']`
 - Use `df['Fiscal Year']` NOT `df['fiscal_year']`
-- All column names use Title Case with spaces
+- Use `df['FSLine Statement L2']` NOT `df['L2']`
+- Use `df['Amount in USD']` NOT `df['Amount']`
+- All column names use Title Case with spaces - NO abbreviations
 
 ## Valid Values
 
