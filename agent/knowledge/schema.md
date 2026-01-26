@@ -210,3 +210,18 @@ print(fx_impact)
 ```
 
 This gives you the actual recorded FX gains/losses by country and year.
+
+### OPEX L1 Value is 'OPEX' Not 'Operating Expenses'
+**Trigger**: Query asks about operating expenses, OPEX, or operational costs
+**Reality**: The FSLine Statement L1 value is `'OPEX'`, not `'Operating Expenses'`
+**Response**: Always filter with `df[df['FSLine Statement L1'] == 'OPEX']`
+
+```python
+# WRONG - returns empty DataFrame!
+df[df['FSLine Statement L1'] == 'Operating Expenses']
+
+# CORRECT
+df[df['FSLine Statement L1'] == 'OPEX']
+```
+
+The actual L1 values are: `'Cost of Goods Sold'`, `'Net Revenue'`, `'OPEX'`, `'Other Income/Expenses'`
