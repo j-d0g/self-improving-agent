@@ -1527,6 +1527,47 @@ q4_revenue = df[
 
 ---
 
+### Handling Queries for Non-Existent Data Types (Forecasts, Budgets)
+
+**Query**: "What is the revenue forecasted for Q4?"
+
+**Interpretation**: The user is asking for forecast/projected revenue data.
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Step 1: Check what versions exist in the dataset
+print("Available versions:", df['Version'].unique())
+# Output: ['Actuals'] - ONLY historical actuals, no forecasts
+
+# Step 2: Provide helpful response since forecast data doesn't exist
+print("\nThis dataset contains ONLY 'Actuals' (historical data).")
+print("Forecast, budget, or projected data is not available.")
+print("\nAlternatives:")
+print("1. Request a separate forecast/budget dataset")
+print("2. Build a forecasting model based on historical trends")
+print("3. View actual Q4 revenue instead")
+
+# Optional: Show actual Q4 data as a helpful alternative
+actual_q4 = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+print('\nActual Q4 Revenue (historical): ${:,.2f}'.format(actual_q4))
+```
+
+**Key insight**:
+1. **CRITICAL**: Check the `Version` column first - this dataset ONLY has `'Actuals'`
+2. **Don't search endlessly**: If the user asks for forecasts/budgets/projections, check `Version` once and explain the limitation
+3. **Be helpful**: Offer to show actual data as an alternative, or suggest how to obtain forecast data
+4. **Key terms to watch for**: forecast, budget, projected, predicted, plan, target, estimate
+5. This pattern applies to ANY query asking for data types that don't exist (not just forecasts)
+
+---
+
 ### Filtering Products by Character Pattern (Vowels, Consonants, etc.)
 
 **Query**: "Revenue of all products that are vowels"
