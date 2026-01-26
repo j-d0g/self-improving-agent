@@ -365,3 +365,80 @@ print(fx_by_year)
 2. Positive values = FX gains, Negative values = FX losses
 3. The Currency column shows each country's local currency (AUD, CAD, EUR, JPY, GBP, USD)
 4. US has no FX impact since USD is the reporting currency
+
+---
+
+### MISTAKE: Using 'Operating Expenses' Instead of 'OPEX' for L1 Filtering
+
+**Query**: Any query involving operating expenses
+
+**Wrong approach**:
+```python
+# WRONG - the L1 value is 'OPEX', not 'Operating Expenses'!
+df[df['FSLine Statement L1'] == 'Operating Expenses']
+```
+
+**Why it fails**: The FSLine Statement L1 column uses the abbreviated value `'OPEX'`, not the full name "Operating Expenses". Filtering with "Operating Expenses" returns an empty DataFrame.
+
+**Correct approach**:
+```python
+# CORRECT - use 'OPEX' exactly as it appears in the data
+df[df['FSLine Statement L1'] == 'OPEX']
+```
+
+**How to recognize this trap**: When filtering returns 0 rows unexpectedly, print unique values:
+```python
+print(df['FSLine Statement L1'].unique())
+# Output: ['Cost of Goods Sold' 'Net Revenue' 'OPEX' 'Other Income/Expenses']
+```
+
+---
+
+## Positive Examples (continued)
+
+### Rolling Average with Threshold Detection
+
+**Query**: "Calculate the 3-month rolling average of OPEX for each product and identify when any exceeded its rolling average by more than 10%"
+
+**Interpretation**:
+1. Calculate a 3-period rolling average of Operating Expenses for each product
+2. Compare each period's actual OPEX to its rolling average
+3. Flag periods where OPEX exceeded the rolling average by >10%
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Filter for OPEX (use 'OPEX' not 'Operating Expenses'!)
+opex_df = df[df['FSLine Statement L1'] == 'OPEX']
+
+# Group by Product and Fiscal Period, sum the amounts
+opex_grouped = opex_df.groupby(['Product', 'Fiscal Period'])['Amount in USD'].sum().reset_index()
+
+# Sort by Product and Fiscal Period to ensure correct rolling calculation
+opex_sorted = opex_grouped.sort_values(['Product', 'Fiscal Period'])
+
+# Calculate 3-period rolling average
+opex_sorted['Rolling_Avg'] = opex_sorted.groupby('Product')['Amount in USD'].rolling(
+    window=3, min_periods=1
+).mean().reset_index(0, drop=True)
+
+# Calculate the difference from rolling average
+opex_sorted['Diff_From_Avg'] = opex_sorted['Amount in USD'] - opex_sorted['Rolling_Avg']
+opex_sorted['Diff_Percentage'] = (opex_sorted['Diff_From_Avg'] / opex_sorted['Rolling_Avg']) * 100
+
+# Identify instances where OPEX exceeded rolling average by more than 10%
+exceeded = opex_sorted[opex_sorted['Diff_Percentage'] > 10]
+
+print(exceeded[['Product', 'Fiscal Period', 'Amount in USD', 'Rolling_Avg', 'Diff_Percentage']])
+```
+
+**Key insight**:
+1. **CRITICAL**: Use `'OPEX'` not `'Operating Expenses'` for FSLine Statement L1 filtering
+2. Sort by Product and Fiscal Period BEFORE applying rolling window
+3. Use `min_periods=1` to include early periods with less than 3 data points
+4. The `reset_index(0, drop=True)` after rolling is needed to align the rolling result back to the original DataFrame
+5. Percentage calculation: `(actual - rolling_avg) / rolling_avg * 100`
