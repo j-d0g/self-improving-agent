@@ -74,4 +74,16 @@ revenue_by_group = (
 
 ## Edge Cases
 
-<!-- Improver: Document data boundaries and non-existent items -->
+### No 'Month' Column
+**Trigger**: Query asks about "months"
+**Reality**: The dataset has `Fiscal Period` (1-12) and `Fiscal Quarter`, but no 'Month' column
+**Correct approach**: Use `Fiscal Period` as the month identifier, or combine `Fiscal Year` + `Fiscal Period` for unique months
+
+### No Direct Revenue/COGS Columns
+**Trigger**: Code attempts to access `df['Revenue']` or `df['COGS']`
+**Reality**: These columns don't exist
+**Correct approach**: Filter by `FSLine Statement L1` and aggregate `Amount in USD`:
+```python
+revenue = df[df['FSLine Statement L1'] == 'Net Revenue']['Amount in USD'].sum()
+cogs = df[df['FSLine Statement L1'] == 'Cost of Goods Sold']['Amount in USD'].sum()
+```
