@@ -20,7 +20,7 @@ This file documents the structure and valid values in the P&L dataset.
 | FSLine Statement L2 | Detailed line item |
 | Amount in USD | USD value |
 | Amount in Local Currency | Local currency value |
-| Version | Data version (always "Actuals" in this dataset) |
+| Version | Data version (always "Actuals" in this dataset - note the 's'!) |
 
 **IMPORTANT - Column Names Are Case-Sensitive AND Full Names!**
 - Use `df['Country']` NOT `df['country']`
