@@ -281,3 +281,31 @@ plt.figure(figsize=(12, 6))
 pivot = df.pivot_table(index='Fiscal Quarter', columns='Product', values='Amount in USD')
 print(pivot)
 ```
+
+### No Employee/HR Data - This is a Financial Dataset Only
+**Trigger**: Query asks about employee headcount, salaries, FTEs, hiring, HR metrics, or workforce data
+**Reality**: This is a P&L (Profit & Loss) financial dataset. It contains:
+- Revenue, COGS, OPEX, Other Income/Expenses
+- Amounts by Product, Country, Fiscal Period
+It does NOT contain:
+- Employee headcount or FTE counts
+- Individual salaries or compensation data
+- HR/workforce metrics
+- Hiring or termination data
+
+**Response**: Immediately explain that the requested data is not in this dataset. Do NOT attempt to search for non-existent columns.
+
+```python
+# WRONG - wasting tool calls searching for data that doesn't exist
+if 'Employee Headcount' in df.columns:
+    headcount = df['Employee Headcount'].sum()
+# Then checking columns to "verify"...
+
+# CORRECT - know upfront what data exists
+# The dataset only has financial P&L data. For employee metrics,
+# the user needs a separate HR/workforce dataset.
+print("This dataset contains P&L financial data only (Revenue, COGS, OPEX, Other Income/Expenses).")
+print("Employee headcount and HR metrics are not available in this dataset.")
+```
+
+**Note**: While there is a `Headcount Expenses` L2 line item under OPEX, this represents the dollar cost, NOT the number of employees.
