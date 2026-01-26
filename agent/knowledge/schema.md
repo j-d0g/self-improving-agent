@@ -340,3 +340,38 @@ print(merged.columns.tolist())
 # Shows: ['Country', 'Product A_x', 'Product A_y', 'Product B_x', ...]
 # Where _x is revenue, _y is cogs
 ```
+
+### Version Column Value is 'Actuals' Not 'Actual'
+**Trigger**: Filtering the dataset by version
+**Reality**: The Version column value is `'Actuals'` (with an 's'), not `'Actual'`
+**Response**: Always use `df[df['Version'] == 'Actuals']`
+
+```python
+# WRONG - returns empty DataFrame!
+df_actuals = df[df['Version'] == 'Actual']  # No 's' - returns 0 rows silently
+
+# CORRECT - include the 's'
+df_actuals = df[df['Version'] == 'Actuals']
+```
+
+### Pandas GroupBy.apply() Index/Column Ambiguity
+**Trigger**: Using groupby().apply() that modifies the DataFrame, then trying to groupby on the same column again
+**Reality**: After apply(), the grouping columns may become both index levels AND column labels, causing ambiguity errors
+**Response**: Use a manual loop approach instead, or reset_index() after each groupby operation
+
+```python
+# WRONG - causes "ValueError: 'column_name' is both an index level and a column label"
+def add_variance(group):
+    group['Variance'] = group['Amount'] - group['Amount'].mean()
+    return group
+
+result = df.groupby(['Product', 'Period']).apply(add_variance)
+summary = result.groupby('Product')['Variance'].mean()  # ERROR!
+
+# CORRECT - use manual loop to avoid ambiguity
+results = []
+for (product, period), group in df.groupby(['Product', 'Period']):
+    variance = group['Amount'].values[0] - df[df['Product'] == product]['Amount'].mean()
+    results.append({'Product': product, 'Period': period, 'Variance': variance})
+variance_df = pd.DataFrame(results)
+```
