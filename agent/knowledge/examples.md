@@ -1045,6 +1045,38 @@ print(df['Version'].unique())
 
 ---
 
+### MISTAKE: Assuming Generic Column Names (Line Item, Year, Value)
+
+**Query**: Any query on this dataset
+
+**Wrong approach**:
+```python
+# WRONG - assuming generic column names that don't exist!
+df[(df['Line Item'] == 'Headcount') & (df['Year'] == 2023)]['Value'].sum()
+# KeyError: 'Line Item'
+```
+
+**Why it fails**: This dataset does NOT use generic column names. The actual columns are:
+- `FSLine Statement L1` / `FSLine Statement L2` (not `Line Item`)
+- `Fiscal Year` (not `Year`)
+- `Amount in USD` / `Amount in Local Currency` (not `Value` or `Amount`)
+
+**Correct approach**:
+```python
+# CORRECT - use actual column names from the dataset
+df[(df['FSLine Statement L2'] == 'Headcount Expenses') & (df['Fiscal Year'] == 2023)]['Amount in USD'].sum()
+
+# BETTER - check columns FIRST before writing any code
+print(df.columns.tolist())
+# ['Fiscal Year', 'Fiscal Quarter', 'Fiscal Period', 'FSLine Statement L1',
+#  'FSLine Statement L2', 'Product', 'Country', 'Currency',
+#  'Amount in Local Currency', 'Amount in USD', 'Version']
+```
+
+**How to recognize this trap**: If you're about to write code using simple, generic column names (Year, Month, Value, Amount, Item, Type), STOP and check `df.columns.tolist()` first. This dataset uses descriptive column names with spaces.
+
+---
+
 ### MISTAKE: Pandas GroupBy.apply() Creating Index/Column Ambiguity
 
 **Query**: Any variance analysis or transformation that uses groupby().apply() followed by another groupby
