@@ -1568,6 +1568,112 @@ print('\nActual Q4 Revenue (historical): ${:,.2f}'.format(actual_q4))
 
 ---
 
+### Simple Time-Series Forecasting (Average Method)
+
+**Query**: "Forecast Q4 revenue" or "I'd like you to forecast it"
+
+**Interpretation**: Create a forecast for a specific metric using historical data. Since this dataset only contains Actuals (no forecast data), we must build a simple forecasting model from historical trends.
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Step 1: Get historical Q4 revenue by year
+# CRITICAL: Filter by L1 'Net Revenue' - don't sum all amounts!
+q4_revenue = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+].groupby('Fiscal Year')['Amount in USD'].sum()
+
+print('Historical Q4 Revenue:')
+print(q4_revenue)
+
+# Step 2: Calculate simple average forecast
+avg_forecast = q4_revenue.mean()
+print('Average Q4 Revenue:', avg_forecast)
+
+# Step 3: Calculate trend-based forecast (optional - requires sklearn)
+# Note: Linear regression for better trend extrapolation
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+X = q4_revenue.index.values.reshape(-1, 1)
+y = q4_revenue.values
+model = LinearRegression().fit(X, y)
+
+# Predict next year
+next_year = q4_revenue.index.max() + 1
+trend_forecast = model.predict([[next_year]])[0]
+print('Trend-based forecast for', next_year, ':', trend_forecast)
+```
+
+**Key insight**:
+1. **CRITICAL**: When running in bash with `python3 -c "..."`, avoid f-strings with `${value:,.0f}` - bash interprets `$` as a variable!
+   - Use `.format()` or simple prints instead
+   - Or wrap the entire command in single quotes: `python3 -c '...'`
+2. **CRITICAL**: Filter by `FSLine Statement L1 == 'Net Revenue'` before summing - don't sum all `Amount in USD` values!
+3. Simple average is baseline; linear regression captures growth trends
+4. Always show historical data alongside forecasts so user understands the basis
+5. This dataset only has 'Actuals' - there's no built-in forecast data to retrieve
+
+---
+
+### MISTAKE: Repeated F-String Formatting Failures in Bash (Trial and Error Pattern)
+
+**Query**: Any query involving formatted output with currency
+
+**Wrong approach**:
+```bash
+# Attempt 1 - fails
+python3 -c "
+total = 1000
+print(f'Total: ${total:,.0f}')  # bash interprets ${total...}
+"
+# Error: bad math expression: operand expected at ',.0f'
+
+# Attempt 2 - still fails
+python3 -c "
+print(f'{value:,.0f}')  # bash interprets the braces
+"
+# Same error
+
+# Repeated attempts (7+ times) before giving up on formatting...
+```
+
+**Why it fails**: The learner kept trying variations of f-strings with format specifiers inside bash double quotes, not recognizing that ALL of these will fail because bash interprets `$` and `{...}` before Python sees them.
+
+**Correct approach**:
+```bash
+# BEST - use single quotes for bash, then f-strings work normally
+python3 -c '
+total = 1000
+print(f"Total: ${total:,.2f}")  # Works! Single quotes block bash interpretation
+'
+
+# Alternative 1 - use .format() method
+python3 -c "
+total = 1000
+print('Total: \${:,.2f}'.format(total))  # Escape the $ or use .format()
+"
+
+# Alternative 2 - skip currency formatting entirely for quick output
+python3 -c "
+total = 1000
+print('Total:', total)  # Simple, always works
+"
+```
+
+**How to recognize this trap**: If your FIRST attempt at formatted output fails with "bad math expression" or similar bash errors:
+1. STOP trying variations of the same f-string approach
+2. Switch to single-quoted bash command (`python3 -c '...'`)
+3. Or remove the formatting entirely for the first pass, add formatting later if needed
+
+**Root cause**: This is a bash vs Python quoting issue, not a Python issue. The solution is always to change how you invoke Python, not to modify the Python code repeatedly.
+
+---
+
 ### Filtering Products by Character Pattern (Vowels, Consonants, etc.)
 
 **Query**: "Revenue of all products that are vowels"
