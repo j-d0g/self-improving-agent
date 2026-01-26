@@ -1,0 +1,11 @@
+# ACE Pipeline Dependencies
+# Install: pip install -r requirements.txt
+
+# Claude Agent SDK (uses CLI auth, not API key)
+claude-agent-sdk>=0.1.20
+
+# Data processing
+pandas>=2.0.0
+
+# MCP for tool definitions (optional, for future extensions)
+mcp>=1.0.0

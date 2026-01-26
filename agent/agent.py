@@ -33,7 +33,6 @@ from claude_agent_sdk.types import StreamEvent, HookContext
 
 from tracing import ExecutionTrace, SessionTrace, AgentMetrics
 from prompts import load_prompt
-from tools import pl_tools_server, PL_TOOL_NAMES
 
 # Configure logging for background tasks
 logging.basicConfig(level=logging.INFO)
@@ -263,7 +262,7 @@ async def process_agent_stream(
     return final_answer
 
 
-async def wait_for_background_tasks(timeout: float = 60.0) -> None:
+async def wait_for_background_tasks(timeout: float = 180.0) -> None:
     """Wait for all background tasks to complete."""
     if not _background_tasks:
         return
@@ -293,7 +292,6 @@ class LearnerAgent:
         improver_max_budget_usd: float = 0.25,
         learner_model: str | None = None,
         improver_model: str | None = None,
-        stream_output: bool = True,
     ):
         """Initialize the agent.
 
@@ -305,7 +303,6 @@ class LearnerAgent:
             improver_max_budget_usd: Maximum budget per improver run (default $0.25).
             learner_model: Model for the learner agent (default: Haiku 3.5).
             improver_model: Model for the improver agent (default: Sonnet 4).
-            stream_output: Whether to stream agent output to console (default: True).
         """
         self.learner_model = learner_model or self.DEFAULT_LEARNER_MODEL
         self.improver_model = improver_model or self.DEFAULT_IMPROVER_MODEL
@@ -317,7 +314,6 @@ class LearnerAgent:
         self.enable_background_improve = enable_background_improve
         self.max_budget_usd = max_budget_usd
         self.improver_max_budget_usd = improver_max_budget_usd
-        self.stream_output = stream_output
 
         # Load system prompt from file
         self.system_prompt = load_prompt("learner.txt")
@@ -355,7 +351,7 @@ class LearnerAgent:
             max_turns=20,
             system_prompt=self.system_prompt,
             cwd=str(self.project_root),
-            allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
+            allowed_tools=["Read", "Bash", "Grep", "Glob"],  # No Write - learner should not modify knowledge files
             include_partial_messages=True,
             permission_mode="acceptEdits",
             setting_sources=["project"],  # Loads CLAUDE.md from project
@@ -378,8 +374,7 @@ class LearnerAgent:
     async def _background_improve(self, session_path: Path, run_id: str) -> None:
         """Run the improver agent in the background (multi-turn)."""
         try:
-            if self.stream_output:
-                print(f"\n[Improver] Starting for run: {run_id}")
+            print(f"\n[Improver] Starting for run: {run_id}")
 
             prompt = f"""Read the session trace at `{session_path}`.
 
@@ -427,7 +422,7 @@ Apply improvements to the appropriate knowledge file:
                     client.receive_response(),
                     trace,
                     tool_prefix="Improver Tool",
-                    stream_output=self.stream_output,
+                    stream_output=True,
                 )
 
             trace.latency_seconds = time.time() - start_time
@@ -435,12 +430,10 @@ Apply improvements to the appropriate knowledge file:
             # Save improver trace
             improver_dir = self.project_root / "logs" / "improver"
             trace_path = trace.save(improver_dir)
-            if self.stream_output:
-                print(f"\n[Improver] Completed (trace: {trace_path})")
+            print(f"\n[Improver] Completed (trace: {trace_path})")
 
         except Exception as e:
-            if self.stream_output:
-                print(f"\n[Improver] Failed: {e}")
+            print(f"\n[Improver] Failed: {e}")
 
     async def _query_async(self, question: str, run_id: str = None) -> dict:
         """Async implementation of query with multi-turn support."""
@@ -460,7 +453,7 @@ Apply improvements to the appropriate knowledge file:
                 self._client.receive_response(),
                 trace,
                 tool_prefix="Tool",
-                stream_output=self.stream_output,
+                stream_output=True,
             )
         else:
             # Single-turn mode: create temporary client
@@ -469,7 +462,7 @@ Apply improvements to the appropriate knowledge file:
                 max_turns=20,
                 system_prompt=self.system_prompt,
                 cwd=str(self.project_root),
-                allowed_tools=["Read", "Write", "Bash", "Grep", "Glob"],
+                allowed_tools=["Read", "Bash", "Grep", "Glob"],  # No Write - learner should not modify knowledge files
                 include_partial_messages=True,
                 permission_mode="acceptEdits",
                 setting_sources=["project"],  # Loads CLAUDE.md from project
@@ -481,7 +474,7 @@ Apply improvements to the appropriate knowledge file:
                     client.receive_response(),
                     trace,
                     tool_prefix="Tool",
-                    stream_output=self.stream_output,
+                    stream_output=True,
                 )
 
         trace.latency_seconds = time.time() - start_time
@@ -535,7 +528,7 @@ async def main_async():
         # Wait for background improvement
         if _background_tasks:
             print("\nWaiting for background improvement...")
-            await wait_for_background_tasks(timeout=60.0)
+            await wait_for_background_tasks(timeout=180.0)
             print("Done.")
 
         # Save session trace
@@ -568,7 +561,7 @@ async def main_async():
                     # Wait for background tasks
                     if _background_tasks:
                         print("\nWaiting for background tasks...")
-                        await wait_for_background_tasks(timeout=30.0)
+                        await wait_for_background_tasks(timeout=180.0)
                     if agent.metrics.traces:
                         print("\n" + "="*40)
                         print("SESSION METRICS:")
