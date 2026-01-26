@@ -225,3 +225,48 @@ df[df['FSLine Statement L1'] == 'OPEX']
 ```
 
 The actual L1 values are: `'Cost of Goods Sold'`, `'Net Revenue'`, `'OPEX'`, `'Other Income/Expenses'`
+
+### No 'date' Column - Use Fiscal Year/Quarter/Period
+**Trigger**: Query asks about dates, time series, or seasonal patterns
+**Reality**: The dataset does NOT have a 'date' column. It uses separate columns for fiscal time periods.
+**Response**: Use `Fiscal Year`, `Fiscal Quarter`, and `Fiscal Period` columns instead
+
+```python
+# WRONG - KeyError!
+df['date'] = pd.to_datetime(df['date'])
+df['month'] = df['date'].dt.month
+
+# CORRECT - use the fiscal columns directly
+# Fiscal Year: 2020, 2021, 2022, 2023, 2024
+# Fiscal Quarter: Q1, Q2, Q3, Q4
+# Fiscal Period: 2020-01, 2020-02, ... 2024-12 (string format)
+df.groupby(['Fiscal Year', 'Fiscal Quarter'])['Amount in USD'].sum()
+```
+
+### L1 is 'Net Revenue' Not 'Revenue'
+**Trigger**: Query asks about revenue
+**Reality**: The FSLine Statement L1 value is `'Net Revenue'`, not `'Revenue'`
+**Response**: Always use `'Net Revenue'` for L1 filtering
+
+```python
+# WRONG - returns empty DataFrame!
+df[df['FSLine Statement L1'] == 'Revenue']
+
+# CORRECT
+df[df['FSLine Statement L1'] == 'Net Revenue']
+```
+
+### No matplotlib Available
+**Trigger**: Code attempts to import matplotlib for visualization
+**Reality**: matplotlib is not installed in the execution environment
+**Response**: Use text-based output instead of visualizations. Present data in tabular format using pandas pivot tables or formatted print statements.
+
+```python
+# WRONG - ModuleNotFoundError!
+import matplotlib.pyplot as plt
+plt.figure(figsize=(12, 6))
+
+# CORRECT - use text-based output
+pivot = df.pivot_table(index='Fiscal Quarter', columns='Product', values='Amount in USD')
+print(pivot)
+```
