@@ -892,3 +892,83 @@ opex = df[df['FSLine Statement L1'] == 'OPEX']['Amount in USD'].sum()
 ```
 
 **How to recognize this trap**: If you're about to access a column that sounds like a financial metric (Revenue, COGS, Profit, etc.), STOP. This dataset uses a normalized format where all values are in `Amount in USD` and the metric type is in `FSLine Statement L1/L2`.
+
+---
+
+### MISTAKE: Using 'Actual' Instead of 'Actuals' for Version Filtering
+
+**Query**: Any query that filters by version or actuals data
+
+**Wrong approach**:
+```python
+# WRONG - 'Actual' (singular) returns ZERO rows!
+df_actuals = df[df['Version'] == 'Actual']
+print(df_actuals['FSLine Statement L2'].unique())  # Output: [] - empty!
+```
+
+**Why it fails**: The Version column contains `'Actuals'` (with an 's'), not `'Actual'`. This filter silently returns an empty DataFrame, causing all subsequent analysis to fail or return empty results.
+
+**Correct approach**:
+```python
+# CORRECT - use 'Actuals' with the 's'
+df_actuals = df[df['Version'] == 'Actuals']
+```
+
+**How to recognize this trap**: If your filtered data returns 0 rows or empty results unexpectedly, check the Version filter. The value is `'Actuals'` (plural). Verify with:
+```python
+print(df['Version'].unique())
+# Output: ['Actuals']
+```
+
+---
+
+### MISTAKE: Pandas GroupBy.apply() Creating Index/Column Ambiguity
+
+**Query**: Any variance analysis or transformation that uses groupby().apply() followed by another groupby
+
+**Wrong approach**:
+```python
+# WRONG - after apply(), subsequent groupby fails with ambiguity error
+def compute_variance(group):
+    yearly_avg = group['Amount in USD'].mean()
+    group['Variance'] = group['Amount in USD'] - yearly_avg
+    return group
+
+# First groupby works...
+result = df.groupby(['FSLine Statement L2', 'Fiscal Period']).apply(compute_variance)
+
+# But this fails!
+summary = result.groupby('FSLine Statement L2')['Variance'].agg(['mean', 'std'])
+# ValueError: 'FSLine Statement L2' is both an index level and a column label
+```
+
+**Why it fails**: When using `groupby().apply()`, pandas may keep the grouping columns as both index levels AND column labels. Subsequent groupby operations become ambiguous because pandas doesn't know which to use.
+
+**Correct approach**:
+```python
+# CORRECT - use manual loop to avoid ambiguity entirely
+l2_items = df['FSLine Statement L2'].unique()
+fiscal_periods = df['Fiscal Period'].unique()
+
+results = []
+for l2_item in l2_items:
+    item_data = df[df['FSLine Statement L2'] == l2_item]
+    yearly_avg = item_data['Amount in USD'].mean()
+
+    for period in fiscal_periods:
+        period_data = item_data[item_data['Fiscal Period'] == period]
+        if not period_data.empty:
+            period_amount = period_data['Amount in USD'].values[0]
+            variance_pct = ((period_amount - yearly_avg) / yearly_avg * 100)
+            results.append({
+                'FSLine Statement L2': l2_item,
+                'Fiscal Period': period,
+                'Variance Percentage': variance_pct
+            })
+
+variance_df = pd.DataFrame(results)
+# Now you can safely groupby on variance_df
+summary = variance_df.groupby('FSLine Statement L2')['Variance Percentage'].agg(['mean', 'std'])
+```
+
+**How to recognize this trap**: If you get a `ValueError: 'X' is both an index level and a column label` after using groupby().apply(), switch to a manual loop approach. This is especially common in variance analysis patterns.
