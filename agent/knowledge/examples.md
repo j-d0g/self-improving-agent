@@ -1431,6 +1431,45 @@ summary = variance_df.groupby('FSLine Statement L2')['Variance Percentage'].agg(
 
 ## Positive Examples (continued)
 
+### Quarterly Revenue Calculation
+
+**Query**: "What's the revenue for Q4?"
+
+**Interpretation**: Calculate the total revenue for fiscal quarter Q4 across all years, products, and countries.
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# CRITICAL: Column is 'Fiscal Quarter' NOT 'Quarter'!
+# CRITICAL: Filter by L1 'Net Revenue', then sum 'Amount in USD'
+q4_revenue = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+
+print('Q4 Revenue: ${:,.2f}'.format(q4_revenue))
+
+# For breakdown by year:
+q4_by_year = df[
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+].groupby('Fiscal Year')['Amount in USD'].sum()
+print('\nQ4 Revenue by Year:')
+print(q4_by_year)
+```
+
+**Key insight**:
+1. **CRITICAL**: Use `Fiscal Quarter` NOT `Quarter` - there is no 'Quarter' column
+2. **CRITICAL**: There is NO 'Revenue' column - filter by `FSLine Statement L1 == 'Net Revenue'` and aggregate `Amount in USD`
+3. Fiscal Quarter values are: 'Q1', 'Q2', 'Q3', 'Q4' (strings, not integers)
+4. Always EXECUTE the code - don't just write it in thinking and provide a fabricated answer!
+5. When outputting currency in bash, use `.format()` instead of f-strings with `$` to avoid bash variable interpretation
+
+---
+
 ### Filtering Products by Character Pattern (Vowels, Consonants, etc.)
 
 **Query**: "Revenue of all products that are vowels"
