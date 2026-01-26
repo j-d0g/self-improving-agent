@@ -177,7 +177,7 @@ def calculate_yoy_change(group):
     return group
 
 # Apply to each product-country combination
-# NOTE: Use include_groups=False to avoid FutureWarning in newer pandas
+# CRITICAL: Use include_groups=False to avoid FutureWarning in newer pandas
 result = merged.groupby(['Product', 'Country'], group_keys=False).apply(
     calculate_yoy_change, include_groups=False
 )
@@ -185,6 +185,35 @@ result = merged.groupby(['Product', 'Country'], group_keys=False).apply(
 # Flag significant changes (e.g., > 5 percentage points)
 result['Significant_Change'] = result['YoY_Change'].abs() > 5
 ```
+
+### Alternative: Pivot Table Approach for Multi-Metric Calculations
+When calculating metrics like profit margin across multiple dimensions, you can use pivot_table:
+
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Pivot to get L1 categories as columns
+pivot_df = df.pivot_table(
+    index=['Product', 'Country', 'Fiscal Year'],
+    columns='FSLine Statement L1',
+    values='Amount in USD',
+    aggfunc='sum'
+).reset_index()
+
+# Now calculate metrics directly (column names match L1 values!)
+pivot_df['Net_Income'] = pivot_df['Net Revenue'] - pivot_df['Cost of Goods Sold'] - pivot_df['OPEX']
+pivot_df['Profit_Margin'] = (pivot_df['Net_Income'] / pivot_df['Net Revenue'] * 100).round(2)
+
+# CRITICAL: Don't use 'Revenue' - the column is named 'Net Revenue' after pivot!
+# CRITICAL: Don't use 'Operating Expenses' - the column is named 'OPEX' after pivot!
+```
+
+**Trade-offs**:
+- **Pivot approach**: Cleaner syntax, all L1 values become columns, but column names must exactly match L1 values
+- **Merge approach**: More explicit, better for complex filtering, easier to debug
 
 ## Edge Cases
 
