@@ -13,6 +13,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -48,9 +49,14 @@ Examples:
         help="Queries per batch (default: 4)",
     )
     parser.add_argument(
-        "--no-improve",
+        "--baseline",
         action="store_true",
-        help="Disable Curator (baseline mode)",
+        help="Disable Curator and Aggregator (no learning)",
+    )
+    parser.add_argument(
+        "--no-aggregator",
+        action="store_true",
+        help="Disable Aggregator only (keep Curator)",
     )
     parser.add_argument(
         "-q", "--quiet",
@@ -68,6 +74,18 @@ Examples:
         type=Path,
         default=None,
         help="Custom validation queries JSON file",
+    )
+    parser.add_argument(
+        "--train-size",
+        type=int,
+        default=None,
+        help="Cap training set to N randomly sampled queries",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility",
     )
 
     return parser.parse_args()
@@ -92,21 +110,37 @@ async def main_async():
 
     train_queries = load_queries(train_path)
     validation_queries = load_queries(test_path)
+    original_train_size = len(train_queries)
+
+    # Set random seed if provided
+    if args.seed is not None:
+        random.seed(args.seed)
+
+    # Subsample training set if requested
+    if args.train_size and args.train_size < len(train_queries):
+        train_queries = random.sample(train_queries, args.train_size)
 
     if not args.quiet:
         print("="*60)
         print("ACE Training")
         print("="*60)
-        print(f"Training queries: {len(train_queries)} from {train_path.name}")
+        train_info = f"{len(train_queries)} from {train_path.name}"
+        if args.train_size and args.train_size < original_train_size:
+            train_info += f" (sampled from {original_train_size})"
+        print(f"Training queries: {train_info}")
         print(f"Validation queries: {len(validation_queries)} from {test_path.name}")
+        if args.seed is not None:
+            print(f"Random seed: {args.seed}")
         print(f"Epochs: {args.epochs}")
         print(f"Batch size: {args.batch_size}")
-        print(f"Curator: {'disabled' if args.no_improve else 'enabled'}")
+        print(f"Curator: {'disabled' if args.baseline else 'enabled'}")
+        print(f"Aggregator: {'disabled' if args.baseline or args.no_aggregator else 'enabled'}")
         print()
 
     # Create orchestrator
     orchestrator = BatchOrchestrator(
-        run_curator=not args.no_improve,
+        run_curator=not args.baseline,
+        run_aggregator=not args.baseline and not args.no_aggregator,
         stream_output=not args.quiet,
     )
 

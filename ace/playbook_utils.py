@@ -19,11 +19,17 @@ BULLET_PATTERN = re.compile(
     r'^\[([^\]]+)\]\s+helpful=(\d+)\s+harmful=(\d+)\s*::\s*(.*)$'
 )
 
-# Prefix patterns for different bullet types
+# Prefix patterns for different bullet types (section name -> ID prefix)
 BULLET_PREFIXES = {
-    'examples': 'ex',
     'schema': 'sch',
-    'edge_cases': 'edge',
+    'strategies_&_insights': 'str',
+    'formulas_&_calculations': 'calc',
+    'code_templates': 'code',
+    'edge_cases_&_pitfalls': 'edge',
+    'common_mistakes': 'err',
+    'query_interpretation': 'interp',
+    # Legacy prefixes for backwards compatibility
+    'examples': 'ex',
     'errors': 'err',
     'patterns': 'pat',
 }

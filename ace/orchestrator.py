@@ -14,6 +14,7 @@ Pipeline per batch:
 import asyncio
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Callable
 from .solver import SolverAgent, SolverResult
 from .reflector import Reflector, ReflectorResult
 from .curator import Curator, CuratorResult
+from .aggregator import Aggregator, AggregatorResult
 from .playbook_utils import Tag
 
 logger = logging.getLogger(__name__)
@@ -110,6 +112,7 @@ class EpochResult:
     epoch: int
     train_batches: list[BatchResult] = field(default_factory=list)
     validation_result: BatchResult | None = None
+    aggregator_result: AggregatorResult | None = None
 
     # Aggregates
     train_accuracy: float = 0.0
@@ -146,6 +149,8 @@ class EpochResult:
         self.total_tokens = sum(b.total_tokens for b in all_batches)
         self.total_output_tokens = sum(b.total_output_tokens for b in all_batches)
         self.total_cost_usd = sum(b.total_cost_usd for b in all_batches)
+        if self.aggregator_result:
+            self.total_cost_usd += self.aggregator_result.total_cost_usd
         self.total_latency_seconds = sum(b.total_latency_seconds for b in all_batches)
         self.total_tool_calls = sum(b.total_tool_calls for b in all_batches)
         self.empty_tool_calls = sum(b.empty_tool_calls for b in all_batches)
@@ -273,6 +278,31 @@ class TrainingRun:
                     "helpful_tags": e.helpful_tags,
                     "harmful_tags": e.harmful_tags,
                     "neutral_tags": e.neutral_tags,
+                    # Per-batch details for rolling charts
+                    "batches": [
+                        {
+                            "batch": b.batch_num,
+                            "accuracy": b.accuracy,
+                            "num_correct": b.num_correct,
+                            "num_total": b.num_total,
+                            "tokens": b.total_tokens,
+                            "latency": b.total_latency_seconds,
+                            "tool_calls": b.total_tool_calls,
+                            "empty_calls": b.empty_tool_calls,
+                            # Per-query details for individual rolling accuracy
+                            "queries": [
+                                {
+                                    "correct": rr.is_correct,
+                                    "tokens": sr.total_tokens,
+                                    "latency": sr.latency_seconds,
+                                    "tool_calls": sr.total_tool_calls,
+                                    "empty_calls": sr.empty_tool_calls,
+                                }
+                                for sr, rr in zip(b.solver_results, b.reflector_results)
+                            ],
+                        }
+                        for b in e.train_batches
+                    ],
                 }
                 for e in self.epochs
             ],
@@ -280,14 +310,22 @@ class TrainingRun:
 
 
 class BatchOrchestrator:
-    """Orchestrates the ACE pipeline for batch training."""
+    """Orchestrates the ACE pipeline for batch training.
+
+    Pipeline:
+    - Per Query: Solver → Reflector
+    - Per Batch: Curator (immediate, safe changes)
+    - Per Epoch: Aggregator (strategic, structural changes)
+    """
 
     def __init__(
         self,
         solver: SolverAgent | None = None,
         reflector: Reflector | None = None,
         curator: Curator | None = None,
+        aggregator: Aggregator | None = None,
         run_curator: bool = True,
+        run_aggregator: bool = True,
         stream_output: bool = True,
     ):
         """Initialize the orchestrator.
@@ -296,13 +334,17 @@ class BatchOrchestrator:
             solver: SolverAgent instance (created if not provided)
             reflector: Reflector instance (created if not provided)
             curator: Curator instance (created if not provided)
+            aggregator: Aggregator instance (created if not provided)
             run_curator: Whether to run the Curator (set False for baseline)
+            run_aggregator: Whether to run the Aggregator (set False for baseline)
             stream_output: Whether to print streaming output
         """
         self.solver = solver or SolverAgent(stream_output=stream_output)
         self.reflector = reflector or Reflector()
         self.curator = curator or Curator()
+        self.aggregator = aggregator or Aggregator()
         self.run_curator = run_curator
+        self.run_aggregator = run_aggregator
         self.stream_output = stream_output
 
         self.ace_root = Path(__file__).parent
@@ -368,8 +410,13 @@ class BatchOrchestrator:
             curator_result = await self.curator.curate()
             result.curator_result = curator_result
 
-            if self.stream_output and curator_result.operations:
-                print(f"[Curator] Applied {curator_result.operations_applied} operations")
+            if self.stream_output and (curator_result.counter_updates or curator_result.bullets_added):
+                parts = []
+                if curator_result.counter_updates:
+                    parts.append(f"{len(curator_result.counter_updates)} counter updates")
+                if curator_result.bullets_added:
+                    parts.append(f"{len(curator_result.bullets_added)} bullets added")
+                print(f"[Curator] {', '.join(parts)}")
 
         result.compute_aggregates()
 
@@ -447,10 +494,14 @@ class BatchOrchestrator:
             print(f"EPOCH {epoch}")
             print(f"{'='*60}")
 
-        # Split train queries into batches
+        # Shuffle training queries for this epoch (without replacement)
+        shuffled_queries = train_queries.copy()
+        random.shuffle(shuffled_queries)
+
+        # Split into batches
         batches = [
-            train_queries[i:i + batch_size]
-            for i in range(0, len(train_queries), batch_size)
+            shuffled_queries[i:i + batch_size]
+            for i in range(0, len(shuffled_queries), batch_size)
         ]
 
         # Run each training batch
@@ -461,6 +512,27 @@ class BatchOrchestrator:
                 epoch=epoch,
             )
             result.train_batches.append(batch_result)
+
+        # Run Aggregator after all batches (strategic, per-epoch decisions)
+        if self.run_aggregator:
+            if self.stream_output:
+                print(f"\n[Aggregator] Running batch-level analysis...")
+            aggregator_result = await self.aggregator.aggregate()
+            result.aggregator_result = aggregator_result
+
+            if self.stream_output:
+                if aggregator_result.decisions:
+                    print(f"[Aggregator] Made {len(aggregator_result.decisions)} decisions:")
+                    print(f"  - Applied: {aggregator_result.proposals_applied}")
+                    print(f"  - Rejected: {aggregator_result.proposals_rejected}")
+                    if aggregator_result.bullets_added > 0:
+                        print(f"  - Bullets added: {aggregator_result.bullets_added}")
+                    if aggregator_result.bullets_deleted > 0:
+                        print(f"  - Bullets deleted: {aggregator_result.bullets_deleted}")
+                    if aggregator_result.failure_patterns:
+                        print(f"  - Failure patterns detected: {len(aggregator_result.failure_patterns)}")
+                else:
+                    print(f"[Aggregator] No deferred proposals to process")
 
         # Run validation after epoch
         if validation_queries:
@@ -479,6 +551,9 @@ class BatchOrchestrator:
             total_tags = result.helpful_tags + result.harmful_tags + result.neutral_tags
             if total_tags > 0:
                 print(f"  Bullet tags: {result.helpful_tags} helpful, {result.harmful_tags} harmful, {result.neutral_tags} neutral")
+            if result.aggregator_result:
+                ar = result.aggregator_result
+                print(f"  Aggregator: {ar.proposals_applied} applied, {ar.proposals_rejected} rejected, ${ar.total_cost_usd:.4f}")
 
         return result
 
@@ -523,6 +598,7 @@ class BatchOrchestrator:
             print(f"Train queries: {len(train_queries)}")
             print(f"Validation queries: {len(validation_queries)}")
             print(f"Curator: {'enabled' if self.run_curator else 'disabled'}")
+            print(f"Aggregator: {'enabled' if self.run_aggregator else 'disabled'}")
 
         for epoch in range(1, num_epochs + 1):
             epoch_result = await self.run_epoch(
@@ -589,15 +665,31 @@ class BatchOrchestrator:
 def load_queries(json_path: Path) -> list[dict]:
     """Load queries from a JSON file.
 
-    Expected format: [{"query": "...", "answer": "..."}, ...]
+    Expected format: [{"query": "...", "answer": "...", "scoring": {...}}, ...]
+
+    For soundness-based queries (no ground truth answer), include:
+        "scoring": {
+            "type": "soundness",
+            "criteria": "Description of how to score the response 0-1"
+        }
     """
     with open(json_path) as f:
         data = json.load(f)
 
-    return [
-        {"query": q["query"], "expected_answer": q.get("answer", "")}
-        for q in data
-    ]
+    result = []
+    for q in data:
+        entry = {
+            "query": q["query"],
+            "expected_answer": q.get("answer") or "",  # Handle None and empty
+        }
+        # Pass through scoring config for soundness-based evaluation
+        if "scoring" in q:
+            entry["scoring"] = q["scoring"]
+        if "category" in q:
+            entry["category"] = q["category"]
+        result.append(entry)
+
+    return result
 
 
 async def test_orchestrator():

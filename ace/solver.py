@@ -61,13 +61,23 @@ class SolverResult:
     # Ground truth for Reflector (set by caller)
     expected_answer: str | None = None
 
+    # Scoring metadata for soundness-based evaluation (no ground truth)
+    scoring: dict | None = None  # {"type": "soundness", "criteria": "..."}
+    category: str | None = None  # e.g., "subjective", "edge_case", "currency_trap"
+
+    # Timestamp for trace logging
+    timestamp: str = field(default_factory=lambda: "")
+
     def to_dict(self) -> dict:
         return {
             "run_id": self.run_id,
+            "timestamp": self.timestamp,
             "query": self.query,
             "answer": self.answer,
             "bullet_ids_used": self.bullet_ids_used,
             "expected_answer": self.expected_answer,
+            "scoring": self.scoring,
+            "category": self.category,
             "latency_seconds": self.latency_seconds,
             "total_tokens": self.total_tokens,
             "input_tokens": self.input_tokens,
@@ -77,6 +87,15 @@ class SolverResult:
             "empty_tool_calls": self.empty_tool_calls,
             "turns": self.turns,
         }
+
+    def save(self, log_dir: Path) -> Path:
+        """Save trace to JSON file. Returns path to saved file."""
+        log_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"solver_{self.run_id}.json"
+        path = log_dir / filename
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        return path
 
 
 def extract_bullet_ids(text: str) -> list[str]:
@@ -141,16 +160,18 @@ class SolverAgent:
         max_budget_usd: float = 0.50,
         max_turns: int = 20,
         stream_output: bool = True,
+        log_traces: bool = True,
     ):
         """Initialize the Solver.
 
         Args:
-            knowledge_dir: Path to knowledge files (schema.md, examples.md, functions.py)
+            knowledge_dir: Path to knowledge files (playbook.md)
             dataset_path: Path to the P&L dataset CSV
             model: Model to use (default: Haiku 4.5)
             max_budget_usd: Maximum budget per query
             max_turns: Maximum agent turns per query
             stream_output: Whether to print streaming output
+            log_traces: Whether to save execution traces to logs/solver/
         """
         self.ace_root = Path(__file__).parent
         self.project_root = self.ace_root.parent  # agemo/
@@ -161,6 +182,8 @@ class SolverAgent:
         self.max_budget_usd = max_budget_usd
         self.max_turns = max_turns
         self.stream_output = stream_output
+        self.log_traces = log_traces
+        self.log_dir = self.ace_root / "logs" / "solver"
 
         # Load system prompt
         self.system_prompt = self._build_system_prompt()
@@ -212,13 +235,13 @@ class SolverAgent:
 
 ## CRITICAL: Bullet Tracking
 
-The knowledge files use bullet format with IDs like [ex-00001] or [sch-00003].
+The playbook uses bullet format with IDs like [sch-00001], [str-00002], [calc-00003].
 
 **When you use information from a bullet, you MUST cite it in your response.**
 
 Example:
-- If you use the CAGR formula from [ex-00001], write: "Using the CAGR pattern from [ex-00001]..."
-- If you check the valid products from [sch-00012], write: "According to [sch-00012], valid products are..."
+- If you use the CAGR formula from [calc-00005], write: "Using [calc-00005]..."
+- If you check the valid products from [edge-00001], write: "According to [edge-00001]..."
 
 This citation is MANDATORY for learning feedback.
 
@@ -233,11 +256,15 @@ Your query: "[original query]"
 I understand this as: [precise restatement with explicit filters, metrics, and aggregations]
 ```
 
-### 2. Gather Context
-Read knowledge files before writing code:
-- knowledge/schema.md - Column definitions, valid values, formulas (bullets start with [sch-])
-- knowledge/examples.md - Query patterns with working code (bullets start with [ex-])
-- knowledge/functions.py - Reusable helper functions
+### 2. Read the Playbook
+Read `knowledge/playbook.md` before writing code. It contains:
+- SCHEMA - Column definitions, valid values
+- STRATEGIES & INSIGHTS - High-level approaches
+- FORMULAS & CALCULATIONS - Financial formulas
+- CODE TEMPLATES - Reusable code patterns
+- EDGE CASES & PITFALLS - What to watch for
+- COMMON MISTAKES - What NOT to do
+- QUERY INTERPRETATION - How to parse ambiguous queries
 
 ### 3. Show All Work
 Always show the complete code you're executing. Both successful and failed attempts are valuable.
@@ -269,7 +296,7 @@ print(result)
 After completing your analysis, provide:
 1. The answer to the user's question (clear and concise)
 2. Brief explanation of how you calculated it
-3. List of bullet IDs used: [ex-00001], [sch-00003], etc.
+3. List of bullet IDs used: [sch-00001], [calc-00003], etc.
 """
 
     async def _process_response(
@@ -378,6 +405,16 @@ After completing your analysis, provide:
                     pending_tool_calls[tool_id]["output"] = output
                 continue
 
+            # Handle any other message types with nested tool results
+            if hasattr(message, 'content') and message.content:
+                blocks = message.content if isinstance(message.content, list) else [message.content]
+                for block in blocks:
+                    if isinstance(block, ToolResultBlock):
+                        tool_id = block.tool_use_id
+                        output = _extract_tool_output(block.content)
+                        if tool_id and tool_id in pending_tool_calls:
+                            pending_tool_calls[tool_id]["output"] = output
+
         # Finalize last turn
         if current_turn and (current_turn["thinking"] or current_turn["tool_calls"]):
             current_turn["thinking"] = current_turn["thinking"].strip()
@@ -390,6 +427,8 @@ After completing your analysis, provide:
         query: str,
         run_id: str | None = None,
         expected_answer: str | None = None,
+        scoring: dict | None = None,
+        category: str | None = None,
     ) -> SolverResult:
         """Execute a single query.
 
@@ -402,6 +441,8 @@ After completing your analysis, provide:
             query: The question to answer
             run_id: Optional run ID for tracking
             expected_answer: Optional ground truth for Reflector
+            scoring: Optional scoring config for soundness-based evaluation
+            category: Optional category tag (e.g., "subjective", "edge_case")
 
         Returns:
             SolverResult with answer and bullet_ids_used
@@ -415,6 +456,8 @@ After completing your analysis, provide:
             bullet_ids_used=[],
             run_id=run_id,
             expected_answer=expected_answer,
+            scoring=scoring,
+            category=category,
         )
 
         start_time = time.time()
@@ -458,6 +501,14 @@ After completing your analysis, provide:
         if self.stream_output:
             print()  # Newline after streaming
 
+        # Save trace to logs/solver/
+        if self.log_traces:
+            from datetime import datetime
+            result.timestamp = datetime.now().isoformat()
+            trace_path = result.save(self.log_dir)
+            if self.stream_output:
+                logger.debug(f"Solver trace saved: {trace_path}")
+
         return result
 
     async def solve_batch(
@@ -468,7 +519,8 @@ After completing your analysis, provide:
         """Execute a batch of queries in parallel.
 
         Args:
-            queries: List of dicts with 'query' and optional 'expected_answer', 'run_id'
+            queries: List of dicts with 'query' and optional 'expected_answer', 'run_id',
+                     'scoring', 'category'
             concurrency: Max concurrent queries (default: all at once)
 
         Returns:
@@ -481,6 +533,8 @@ After completing your analysis, provide:
                     query=q["query"],
                     run_id=q.get("run_id"),
                     expected_answer=q.get("expected_answer"),
+                    scoring=q.get("scoring"),
+                    category=q.get("category"),
                 )
                 for q in queries
             ]
@@ -495,6 +549,8 @@ After completing your analysis, provide:
                     query=q["query"],
                     run_id=q.get("run_id"),
                     expected_answer=q.get("expected_answer"),
+                    scoring=q.get("scoring"),
+                    category=q.get("category"),
                 )
 
         tasks = [limited_solve(q) for q in queries]

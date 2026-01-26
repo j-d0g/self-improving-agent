@@ -82,8 +82,8 @@ class ACEAgent:
 
         self.query_count += 1
 
-        # Trigger background learning
-        if self.enable_learning and expected_answer:
+        # Trigger background learning (always runs if enabled - doesn't need GT)
+        if self.enable_learning:
             task = asyncio.create_task(self._background_learn(result))
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)

@@ -1,10 +1,11 @@
 """
-ACE: Agentic Counterfactual Expansion
+ACE: Agentic Counterfactual Expansion (v2)
 
-A 3-agent pipeline for self-improving question answering:
+A 4-component pipeline for self-improving question answering:
 - Solver: Executes queries, tracks bullet IDs used
-- Reflector: Tags bullets as helpful/harmful, generates insights
-- Curator: Applies delta operations (ADD/UPDATE/DELETE) to knowledge
+- Reflector: Deep analysis of execution traces, tags bullets, suggests deltas
+- Curator: Applies immediate changes (counters, simple ADDs), defers structural changes
+- Aggregator: Batch-level pattern analysis and strategic knowledge updates
 """
 
 from .playbook_utils import (
@@ -24,8 +25,19 @@ from .playbook_utils import (
     update_counters,
 )
 from .solver import SolverAgent, SolverResult, extract_bullet_ids
-from .reflector import Reflector, ReflectorResult, judge_answer, tag_bullets
+from .reflector import (
+    Reflector,
+    ReflectorResult,
+    judge_answer,
+    Analysis,
+    EnhancedBulletTag,
+    SuggestedDelta,
+    DeltaType,
+    IssueFound,
+    SelfConsistency,
+)
 from .curator import Curator, CuratorResult, aggregate_tags, compute_counter_updates
+from .aggregator import Aggregator, AggregatorResult, FailurePattern, AggregatorDecision
 from .orchestrator import BatchOrchestrator, BatchResult, EpochResult, TrainingRun, load_queries
 
 __all__ = [
@@ -52,12 +64,20 @@ __all__ = [
     "Reflector",
     "ReflectorResult",
     "judge_answer",
-    "tag_bullets",
+    "Analysis",
+    "EnhancedBulletTag",
+    "SuggestedDelta",
+    "DeltaType",
     # Curator
     "Curator",
     "CuratorResult",
     "aggregate_tags",
     "compute_counter_updates",
+    # Aggregator
+    "Aggregator",
+    "AggregatorResult",
+    "FailurePattern",
+    "AggregatorDecision",
     # Orchestrator
     "BatchOrchestrator",
     "BatchResult",

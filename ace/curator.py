@@ -1,17 +1,17 @@
 """
-Curator Agent for ACE Pipeline
+Curator Agent for ACE Pipeline (v2)
 
-The Curator analyzes accumulated tags and applies delta operations to knowledge files.
-Uses Sonnet for sophisticated analysis and decision-making.
+The Curator applies IMMEDIATE, SAFE changes based on Reflector analysis.
+Structural changes are deferred to the Aggregator.
 
-Key responsibilities:
-- Read accumulated tags from logs/tags.jsonl
-- Update counters in knowledge files
-- Generate delta operations: ADD, UPDATE, DELETE
-- Apply operations atomically
+Responsibilities:
+- Update counters (deterministic from tags)
+- Apply high-confidence ADD operations (confidence >= 0.8)
+- Defer structural changes (new categories, merges, deletions) to Aggregator
+
+Key principle: Curator makes fast, safe changes. Aggregator makes strategic ones.
 """
 
-import asyncio
 import json
 import logging
 import time
@@ -19,11 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
-from claude_agent_sdk.types import HookContext
-
 from .playbook_utils import (
-    Bullet,
     BulletTag,
     DeltaOp,
     OpType,
@@ -39,18 +35,65 @@ from .playbook_utils import (
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Data Classes
+# =============================================================================
+
+@dataclass
+class BulletAdded:
+    """Record of a bullet added by Curator."""
+    bullet_id: str
+    section: str
+    content: str
+    confidence: float
+    rationale: str
+    source_run_id: str  # Which Reflector run suggested this
+
+
+@dataclass
+class DeferredProposal:
+    """A proposal deferred for the Aggregator."""
+    proposal_type: str  # "ADD", "UPDATE", "DELETE", "STRUCTURAL"
+    priority: str  # "low", "medium", "high"
+    confidence: float
+    content: str | None
+    bullet_id: str | None
+    section: str | None
+    rationale: str
+    source_run_id: str
+    reason_deferred: str  # Why it wasn't applied immediately
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.proposal_type,
+            "priority": self.priority,
+            "confidence": self.confidence,
+            "content": self.content,
+            "bullet_id": self.bullet_id,
+            "section": self.section,
+            "rationale": self.rationale,
+            "source_run_id": self.source_run_id,
+            "reason_deferred": self.reason_deferred,
+        }
+
+
 @dataclass
 class CuratorResult:
     """Result from Curator curation cycle."""
+    # Input stats
     tags_processed: int
+    reflector_logs_processed: int
+
+    # Applied changes
     counter_updates: list[dict]  # {bullet_id, helpful_delta, harmful_delta}
-    operations: list[dict]  # DeltaOp as dicts
-    operations_applied: int
-    operations_failed: int
+    bullets_added: list[BulletAdded] = field(default_factory=list)
+
+    # Deferred for Aggregator
+    deferred_proposals: list[DeferredProposal] = field(default_factory=list)
 
     # Stats before/after
-    stats_before: dict
-    stats_after: dict
+    stats_before: dict = field(default_factory=dict)
+    stats_after: dict = field(default_factory=dict)
 
     # Metrics
     latency_seconds: float = 0.0
@@ -60,10 +103,20 @@ class CuratorResult:
     def to_dict(self) -> dict:
         return {
             "tags_processed": self.tags_processed,
+            "reflector_logs_processed": self.reflector_logs_processed,
             "counter_updates": self.counter_updates,
-            "operations": self.operations,
-            "operations_applied": self.operations_applied,
-            "operations_failed": self.operations_failed,
+            "bullets_added": [
+                {
+                    "bullet_id": b.bullet_id,
+                    "section": b.section,
+                    "content": b.content,
+                    "confidence": b.confidence,
+                    "rationale": b.rationale,
+                    "source_run_id": b.source_run_id,
+                }
+                for b in self.bullets_added
+            ],
+            "deferred_proposals": [p.to_dict() for p in self.deferred_proposals],
             "stats_before": self.stats_before,
             "stats_after": self.stats_after,
             "latency_seconds": self.latency_seconds,
@@ -71,6 +124,10 @@ class CuratorResult:
             "total_cost_usd": self.total_cost_usd,
         }
 
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 def aggregate_tags(tags: list[dict]) -> dict[str, dict]:
     """Aggregate tag counts by bullet_id.
@@ -114,74 +171,47 @@ def compute_counter_updates(aggregated: dict[str, dict]) -> list[dict]:
     return updates
 
 
-async def validate_curator_writes(
-    input_data: dict,
-    tool_use_id: str | None,
-    context: HookContext,
-) -> dict:
-    """Hook to ensure Curator only writes to knowledge/ directory."""
-    tool_name = input_data.get("tool_name", "")
-    if tool_name not in ["Write", "Edit"]:
-        return {}
-
-    tool_input = input_data.get("tool_input", {})
-    file_path = tool_input.get("file_path", "")
-
-    path = Path(file_path)
-    path_str = str(path)
-
-    # Allow if path contains knowledge/ directory
-    if "knowledge/" in path_str or path_str.startswith("knowledge"):
-        return {}
-
-    # Allow logs/ for curator trace writing
-    if "logs/" in path_str:
-        return {}
-
-    # Block all other writes
-    logger.warning(f"Curator blocked from writing to: {file_path}")
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": f"Curator restricted to knowledge/ directory. Attempted: {file_path}"
-        }
-    }
-
+# =============================================================================
+# Curator Class
+# =============================================================================
 
 class Curator:
-    """Applies learned improvements to knowledge files."""
+    """Applies immediate, safe changes based on Reflector analysis.
 
-    DEFAULT_MODEL = "claude-sonnet-4-5"
+    The Curator is fast and conservative:
+    - Counter updates: always applied (deterministic)
+    - High-confidence ADDs: applied if confidence >= threshold
+    - Everything else: deferred to Aggregator
+    """
 
-    # Thresholds for delta operations
-    HELPFUL_THRESHOLD = 5  # Minimum helpful count to consider a bullet "proven"
-    HARMFUL_RATIO = 0.5  # Delete if harmful > helpful * ratio
+    # Thresholds
+    ADD_CONFIDENCE_THRESHOLD = 0.8  # Minimum confidence to apply ADD immediately
 
     def __init__(
         self,
         knowledge_dir: Path | None = None,
         tags_log_path: Path | None = None,
-        model: str | None = None,
-        max_budget_usd: float = 0.50,
+        reflector_log_dir: Path | None = None,
+        curator_log_dir: Path | None = None,
     ):
         """Initialize the Curator.
 
         Args:
             knowledge_dir: Path to knowledge files
-            tags_log_path: Path to tags.jsonl
-            model: Model to use (default: Sonnet 4.5)
-            max_budget_usd: Maximum budget per curation
+            tags_log_path: Path to tags.jsonl (legacy, for counter updates)
+            reflector_log_dir: Path to reflector logs (for suggested_deltas)
+            curator_log_dir: Path to curator logs
         """
         self.ace_root = Path(__file__).parent
         self.knowledge_dir = knowledge_dir or self.ace_root / "knowledge"
         self.tags_log_path = tags_log_path or self.ace_root / "logs" / "tags.jsonl"
-        self.model = model or self.DEFAULT_MODEL
-        self.max_budget_usd = max_budget_usd
+        self.reflector_log_dir = reflector_log_dir or self.ace_root / "logs" / "reflector"
+        self.curator_log_dir = curator_log_dir or self.ace_root / "logs" / "curator"
 
         # Ensure directories exist
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.tags_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.curator_log_dir.mkdir(parents=True, exist_ok=True)
 
     def read_tags(self) -> list[dict]:
         """Read all tags from the log file."""
@@ -206,136 +236,152 @@ class Curator:
             self.tags_log_path.unlink()
         return count
 
-    def _load_all_playbooks(self) -> dict[str, Playbook]:
-        """Load all knowledge playbooks."""
-        playbooks = {}
-        for name in ["schema.md", "examples.md"]:
-            path = self.knowledge_dir / name
-            if path.exists():
-                playbooks[name] = load_playbook(path)
-        return playbooks
+    def read_reflector_logs(self) -> list[dict]:
+        """Read all reflector logs from the directory."""
+        logs = []
+        if not self.reflector_log_dir.exists():
+            return logs
 
-    def _get_combined_stats(self, playbooks: dict[str, Playbook]) -> dict:
-        """Get combined stats across all playbooks."""
-        total_bullets = 0
-        total_helpful = 0
-        total_harmful = 0
-        sections = {}
+        for log_file in sorted(self.reflector_log_dir.glob("*.json")):
+            try:
+                with open(log_file) as f:
+                    logs.append(json.load(f))
+            except (json.JSONDecodeError, IOError):
+                continue
+        return logs
 
-        for name, pb in playbooks.items():
-            stats = get_playbook_stats(pb)
-            total_bullets += stats["total_bullets"]
-            total_helpful += stats["total_helpful"]
-            total_harmful += stats["total_harmful"]
-            for sec_name, sec_stats in stats["sections"].items():
-                sections[f"{name}:{sec_name}"] = sec_stats
+    def clear_reflector_logs(self) -> int:
+        """Clear processed reflector logs."""
+        count = 0
+        if self.reflector_log_dir.exists():
+            for log_file in self.reflector_log_dir.glob("*.json"):
+                try:
+                    log_file.unlink()
+                    count += 1
+                except IOError:
+                    continue
+        return count
 
-        return {
-            "total_bullets": total_bullets,
-            "total_helpful": total_helpful,
-            "total_harmful": total_harmful,
-            "avg_net_score": (total_helpful - total_harmful) / total_bullets if total_bullets > 0 else 0,
-            "sections": sections,
-        }
+    def _load_playbook(self) -> Playbook | None:
+        """Load the unified playbook."""
+        path = self.knowledge_dir / "playbook.md"
+        if path.exists():
+            return load_playbook(path)
+        return None
+
+    def _get_stats(self, playbook: Playbook) -> dict:
+        """Get stats for the playbook."""
+        return get_playbook_stats(playbook)
 
     async def curate(self) -> CuratorResult:
         """Run a curation cycle.
 
-        Reads accumulated tags, updates counters, and applies delta operations.
+        Process:
+        1. Read tags and reflector logs
+        2. Apply counter updates (deterministic)
+        3. Apply high-confidence ADDs from suggested_deltas
+        4. Defer everything else to Aggregator
+        5. Save playbooks and log results
 
         Returns:
-            CuratorResult with details of changes made
+            CuratorResult with applied changes and deferred proposals
         """
         start_time = time.time()
 
-        # Read tags
+        # Read inputs
         tags = self.read_tags()
-        if not tags:
+        reflector_logs = self.read_reflector_logs()
+
+        if not tags and not reflector_logs:
             return CuratorResult(
                 tags_processed=0,
+                reflector_logs_processed=0,
                 counter_updates=[],
-                operations=[],
-                operations_applied=0,
-                operations_failed=0,
-                stats_before={},
-                stats_after={},
             )
 
-        # Load playbooks and get stats
-        playbooks = self._load_all_playbooks()
-        stats_before = self._get_combined_stats(playbooks)
+        # Load playbook and get stats
+        playbook = self._load_playbook()
+        if not playbook:
+            return CuratorResult(
+                tags_processed=0,
+                reflector_logs_processed=0,
+                counter_updates=[],
+            )
+        stats_before = self._get_stats(playbook)
 
-        # Aggregate tags and compute counter updates
+        # Step 1: Counter updates (always apply - deterministic)
         aggregated = aggregate_tags(tags)
         counter_updates = compute_counter_updates(aggregated)
 
-        # Apply counter updates to playbooks
-        for pb in playbooks.values():
-            bullet_tags = []
-            for update in counter_updates:
-                bid = update["bullet_id"]
-                # Create BulletTag for each helpful/harmful increment
-                for _ in range(update["helpful_delta"]):
-                    bullet_tags.append(BulletTag(bullet_id=bid, tag=Tag.HELPFUL))
-                for _ in range(update["harmful_delta"]):
-                    bullet_tags.append(BulletTag(bullet_id=bid, tag=Tag.HARMFUL))
-            update_counters(pb, bullet_tags)
+        bullet_tags = []
+        for update in counter_updates:
+            bid = update["bullet_id"]
+            for _ in range(update["helpful_delta"]):
+                bullet_tags.append(BulletTag(bullet_id=bid, tag=Tag.HELPFUL))
+            for _ in range(update["harmful_delta"]):
+                bullet_tags.append(BulletTag(bullet_id=bid, tag=Tag.HARMFUL))
+        update_counters(playbook, bullet_tags)
 
-        # Analyze playbook state and generate delta operations
-        operations = await self._generate_operations(playbooks, tags, aggregated)
+        # Step 2: Process suggested deltas from Reflector logs
+        bullets_added: list[BulletAdded] = []
+        deferred_proposals: list[DeferredProposal] = []
 
-        # Apply operations
-        ops_applied = 0
-        ops_failed = 0
-        for op_dict in operations:
-            op = DeltaOp(
-                op_type=OpType[op_dict["type"]],
-                section=op_dict.get("section"),
-                bullet_id=op_dict.get("bullet_id"),
-                content=op_dict.get("content"),
-                reason=op_dict.get("reason"),
-            )
-            # Find the right playbook for this operation
-            for name, pb in playbooks.items():
-                if op.op_type == OpType.ADD:
-                    # ADD goes to appropriate file based on section
-                    if op.section and (
-                        "example" in op.section.lower() or
-                        "pattern" in op.section.lower()
-                    ):
-                        if name == "examples.md":
-                            success, _ = apply_operations(pb, [op])
-                            ops_applied += success
-                            break
-                    elif name == "schema.md":
-                        success, _ = apply_operations(pb, [op])
-                        ops_applied += success
-                        break
+        for log in reflector_logs:
+            run_id = log.get("run_id", "unknown")
+            suggested_deltas = log.get("suggested_deltas", [])
+
+            for delta in suggested_deltas:
+                delta_type = delta.get("type", "ADD")
+                confidence = float(delta.get("confidence", 0.5))
+                content = delta.get("content")
+                bullet_id = delta.get("bullet_id")
+                section = delta.get("section")
+                rationale = delta.get("rationale", "")
+
+                # Decide: apply immediately or defer?
+                should_apply, reason_deferred = self._should_apply_immediately(
+                    delta_type, confidence, content, section
+                )
+
+                if should_apply:
+                    # Apply ADD immediately
+                    added = self._apply_add(
+                        playbook, content, section, confidence, rationale, run_id
+                    )
+                    if added:
+                        bullets_added.append(added)
                 else:
-                    # UPDATE/DELETE - find bullet in any playbook
-                    if pb.get_bullet(op.bullet_id):
-                        success, failed = apply_operations(pb, [op])
-                        ops_applied += success
-                        ops_failed += failed
-                        break
+                    # Defer to Aggregator
+                    priority = self._compute_priority(delta_type, confidence)
+                    deferred_proposals.append(DeferredProposal(
+                        proposal_type=delta_type,
+                        priority=priority,
+                        confidence=confidence,
+                        content=content,
+                        bullet_id=bullet_id,
+                        section=section,
+                        rationale=rationale,
+                        source_run_id=run_id,
+                        reason_deferred=reason_deferred,
+                    ))
 
-        # Save all playbooks
-        for pb in playbooks.values():
-            save_playbook(pb)
+        # Save playbook
+        save_playbook(playbook)
 
         # Get stats after
-        playbooks_after = self._load_all_playbooks()
-        stats_after = self._get_combined_stats(playbooks_after)
+        playbook_after = self._load_playbook()
+        stats_after = self._get_stats(playbook_after) if playbook_after else {}
 
-        # Clear processed tags
+        # Clear processed inputs
         self.clear_tags()
+        self.clear_reflector_logs()
 
         result = CuratorResult(
             tags_processed=len(tags),
+            reflector_logs_processed=len(reflector_logs),
             counter_updates=counter_updates,
-            operations=operations,
-            operations_applied=ops_applied,
-            operations_failed=ops_failed,
+            bullets_added=bullets_added,
+            deferred_proposals=deferred_proposals,
             stats_before=stats_before,
             stats_after=stats_after,
             latency_seconds=time.time() - start_time,
@@ -346,113 +392,133 @@ class Curator:
 
         return result
 
-    async def _generate_operations(
+    def _should_apply_immediately(
         self,
-        playbooks: dict[str, Playbook],
-        tags: list[dict],
-        aggregated: dict[str, dict],
-    ) -> list[dict]:
-        """Use Sonnet to analyze and generate delta operations.
+        delta_type: str,
+        confidence: float,
+        content: str | None,
+        section: str | None,
+    ) -> tuple[bool, str]:
+        """Decide if a delta should be applied immediately.
 
         Returns:
-            List of operation dicts {type, section?, bullet_id?, content?, reason}
+            (should_apply, reason_if_deferred)
         """
-        # Collect bullets with significant signal
-        bullets_to_analyze = []
-        for bid, counts in aggregated.items():
-            total = counts["helpful"] + counts["harmful"]
-            if total >= 2:  # At least some signal
-                for pb in playbooks.values():
-                    bullet = pb.get_bullet(bid)
-                    if bullet:
-                        bullets_to_analyze.append({
-                            "id": bid,
-                            "content": bullet.content[:200],
-                            "helpful_total": bullet.helpful + counts["helpful"],
-                            "harmful_total": bullet.harmful + counts["harmful"],
-                            "helpful_new": counts["helpful"],
-                            "harmful_new": counts["harmful"],
-                        })
-                        break
+        # Only ADDs can be applied immediately
+        if delta_type != "ADD":
+            return False, f"{delta_type} operations require Aggregator review"
 
-        # Collect insights from failed queries
-        failure_insights = []
-        for t in tags:
-            if not t.get("is_correct") and t.get("insight"):
-                failure_insights.append({
-                    "query": t.get("query", "")[:100],
-                    "insight": t.get("insight", "")[:200],
-                })
+        # Must have content
+        if not content:
+            return False, "ADD has no content"
 
-        if not bullets_to_analyze and not failure_insights:
-            return []
+        # Must have sufficient confidence
+        if confidence < self.ADD_CONFIDENCE_THRESHOLD:
+            return False, f"Confidence {confidence:.2f} below threshold {self.ADD_CONFIDENCE_THRESHOLD}"
 
-        # Build prompt for Sonnet
-        prompt = f"""Analyze the knowledge base performance and recommend improvements.
+        # STRUCTURAL type is always deferred
+        if delta_type == "STRUCTURAL":
+            return False, "Structural changes require Aggregator review"
 
-## Bullet Performance
-{json.dumps(bullets_to_analyze, indent=2)}
+        # Section-based rules
+        if section:
+            section_lower = section.lower()
+            # New categories/sections are structural
+            if "new" in section_lower or "category" in section_lower:
+                return False, "New category creation requires Aggregator review"
 
-## Failure Insights
-{json.dumps(failure_insights[:5], indent=2)}  # Limit to 5 most recent
+        return True, ""
 
-## Guidelines
-1. DELETE bullets where harmful_total > helpful_total (more harm than good)
-2. UPDATE bullets that are helpful but could be clearer based on insights
-3. ADD new bullets ONLY if failure insights reveal a clear knowledge gap
+    def _compute_priority(self, delta_type: str, confidence: float) -> str:
+        """Compute priority for deferred proposals."""
+        if delta_type in ["DELETE", "STRUCTURAL"]:
+            return "high"  # Need careful review
+        elif confidence >= 0.7:
+            return "medium"
+        else:
+            return "low"
 
-Be conservative: only recommend operations with clear justification.
+    def _apply_add(
+        self,
+        playbook: Playbook,
+        content: str,
+        section: str | None,
+        confidence: float,
+        rationale: str,
+        source_run_id: str,
+    ) -> BulletAdded | None:
+        """Apply an ADD operation to the playbook.
 
-Return a JSON array of operations:
-[
-    {{"type": "DELETE", "bullet_id": "xxx", "reason": "..."}},
-    {{"type": "UPDATE", "bullet_id": "xxx", "content": "...", "reason": "..."}},
-    {{"type": "ADD", "section": "Query_Patterns", "content": "...", "reason": "..."}}
-]
+        Returns:
+            BulletAdded if successful, None otherwise
+        """
+        # Map section to a valid playbook section
+        section_name = self._map_to_section(section)
 
-Return [] if no operations are needed."""
+        # Create the operation
+        op = DeltaOp(
+            op_type=OpType.ADD,
+            section=section_name,
+            content=content,
+            reason=rationale,
+        )
 
-        try:
-            options = ClaudeAgentOptions(
-                model=self.model,
-                max_turns=1,
-                system_prompt="You are a knowledge base curator. Return only valid JSON arrays.",
-                cwd=str(self.ace_root),
-                allowed_tools=[],
-                permission_mode="acceptEdits",
-                max_budget_usd=self.max_budget_usd,
+        # Apply it
+        success, _ = apply_operations(playbook, [op])
+        if success > 0:
+            # Find the bullet that was just added (last in the section)
+            bullet_id = self._find_last_bullet_id(playbook, section_name)
+            return BulletAdded(
+                bullet_id=bullet_id or "unknown",
+                section=section_name,
+                content=content,
+                confidence=confidence,
+                rationale=rationale,
+                source_run_id=source_run_id,
             )
 
-            async with ClaudeSDKClient(options=options) as client:
-                await client.query(prompt)
-                response_text = ""
-                async for message in client.receive_response():
-                    if hasattr(message, 'content'):
-                        for block in message.content:
-                            if hasattr(block, 'text'):
-                                response_text += block.text
+        return None
 
-            # Parse JSON array
-            json_start = response_text.find('[')
-            json_end = response_text.rfind(']') + 1
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                operations = json.loads(json_str)
-                return operations if isinstance(operations, list) else []
+    def _map_to_section(self, section: str | None) -> str:
+        """Map a suggested section name to a valid playbook section."""
+        if not section:
+            return "STRATEGIES & INSIGHTS"
 
-            return []
+        section_lower = section.lower()
 
-        except Exception as e:
-            logger.error(f"Curator operation generation error: {e}")
-            return []
+        # Map common patterns to our sections
+        if "schema" in section_lower or "column" in section_lower:
+            return "SCHEMA"
+        elif "strat" in section_lower or "insight" in section_lower:
+            return "STRATEGIES & INSIGHTS"
+        elif "formula" in section_lower or "calc" in section_lower:
+            return "FORMULAS & CALCULATIONS"
+        elif "code" in section_lower or "template" in section_lower:
+            return "CODE TEMPLATES"
+        elif "edge" in section_lower or "pitfall" in section_lower:
+            return "EDGE CASES & PITFALLS"
+        elif "mistake" in section_lower or "error" in section_lower:
+            return "COMMON MISTAKES"
+        elif "interp" in section_lower or "query" in section_lower:
+            return "QUERY INTERPRETATION"
+        else:
+            return "STRATEGIES & INSIGHTS"  # Default
+
+    def _find_last_bullet_id(self, pb: Playbook, section_name: str) -> str | None:
+        """Find the ID of the last bullet in a section."""
+        from .playbook_utils import Bullet
+
+        items = pb.sections.get(section_name, [])
+        # Find last bullet in the section
+        for item in reversed(items):
+            if isinstance(item, Bullet):
+                return item.id
+        return None
 
     def _save_curator_log(self, result: CuratorResult) -> Path:
         """Save curator result to log file."""
-        log_dir = self.ace_root / "logs" / "curator"
-        log_dir.mkdir(parents=True, exist_ok=True)
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_path = log_dir / f"curator_{timestamp}.json"
+        log_path = self.curator_log_dir / f"curator_{timestamp}.json"
 
         with open(log_path, "w") as f:
             json.dump(result.to_dict(), f, indent=2)
@@ -460,46 +526,68 @@ Return [] if no operations are needed."""
         return log_path
 
 
+# =============================================================================
+# Test
+# =============================================================================
+
 async def test_curator():
-    """Test the Curator."""
-    from .playbook_utils import BulletTag, Tag
-    from .reflector import Reflector
+    """Test the enhanced Curator."""
+    import asyncio
 
-    # Create some mock tags
-    reflector = Reflector()
+    print("Testing Enhanced Curator...")
 
-    # Manually add some test tags
-    test_tags = [
-        {"bullet_id": "sch-00016", "tag": "helpful", "is_correct": True, "query": "test1"},
-        {"bullet_id": "sch-00016", "tag": "helpful", "is_correct": True, "query": "test2"},
-        {"bullet_id": "ex-00001", "tag": "harmful", "is_correct": False, "query": "test3", "insight": "Missing edge case"},
-    ]
+    # Create some mock reflector logs
+    reflector_log_dir = Path(__file__).parent / "logs" / "reflector"
+    reflector_log_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(reflector.tags_log_path, "w") as f:
-        for tag in test_tags:
-            f.write(json.dumps(tag) + "\n")
+    mock_log = {
+        "run_id": "test_curator_001",
+        "query": "Test query",
+        "is_correct": False,
+        "suggested_deltas": [
+            {
+                "type": "ADD",
+                "confidence": 0.9,
+                "content": "Test bullet with high confidence",
+                "section": "Key_Rules",
+                "rationale": "This should be applied immediately",
+            },
+            {
+                "type": "ADD",
+                "confidence": 0.5,
+                "content": "Test bullet with low confidence",
+                "section": "Key_Rules",
+                "rationale": "This should be deferred",
+            },
+            {
+                "type": "DELETE",
+                "confidence": 0.8,
+                "bullet_id": "sch-00001",
+                "rationale": "This should be deferred (DELETE)",
+            },
+        ],
+    }
 
-    print("Testing Curator...")
+    with open(reflector_log_dir / "test_curator_001.json", "w") as f:
+        json.dump(mock_log, f)
+
+    # Run curator
     curator = Curator()
-
-    # Test tag reading
-    tags = curator.read_tags()
-    print(f"  Tags read: {len(tags)}")
-
-    # Test aggregation
-    aggregated = aggregate_tags(tags)
-    print(f"  Aggregated: {aggregated}")
-
-    # Test curation
     result = await curator.curate()
 
     print(f"\nCurator Result:")
     print(f"  Tags processed: {result.tags_processed}")
-    print(f"  Counter updates: {result.counter_updates}")
-    print(f"  Operations: {result.operations}")
-    print(f"  Applied: {result.operations_applied}, Failed: {result.operations_failed}")
-    print(f"  Latency: {result.latency_seconds:.1f}s")
+    print(f"  Reflector logs processed: {result.reflector_logs_processed}")
+    print(f"  Counter updates: {len(result.counter_updates)}")
+    print(f"  Bullets added: {len(result.bullets_added)}")
+    for added in result.bullets_added:
+        print(f"    - {added.bullet_id}: {added.content[:50]}...")
+    print(f"  Deferred proposals: {len(result.deferred_proposals)}")
+    for deferred in result.deferred_proposals:
+        print(f"    - {deferred.proposal_type} ({deferred.confidence:.1f}): {deferred.reason_deferred}")
+    print(f"  Latency: {result.latency_seconds:.2f}s")
 
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(test_curator())

@@ -10,6 +10,9 @@ Usage:
     python benchmark.py run --no-improve      # Baseline
     python benchmark.py list                  # List all runs
     python benchmark.py compare <run1> <run2> # Compare two runs
+    python benchmark.py dashboard             # Dashboard for latest run
+    python benchmark.py dashboard <run_id>    # Dashboard for specific run
+    python benchmark.py dashboard --all       # Compare all runs
 """
 
 import argparse
@@ -23,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from ace.orchestrator import BatchOrchestrator, load_queries
+from ace.evals.dashboard import cmd_dashboard
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +51,12 @@ def parse_args() -> argparse.Namespace:
     compare_parser = subparsers.add_parser("compare", help="Compare two runs")
     compare_parser.add_argument("run1", help="First run ID")
     compare_parser.add_argument("run2", help="Second run ID")
+
+    # Dashboard command
+    dash_parser = subparsers.add_parser("dashboard", help="Generate visualization dashboard")
+    dash_parser.add_argument("run_id", nargs="?", help="Run ID (default: latest)")
+    dash_parser.add_argument("--all", action="store_true", help="Compare all runs")
+    dash_parser.add_argument("--compare", nargs="+", metavar="RUN", help="Compare specific runs")
 
     return parser.parse_args()
 
@@ -213,8 +223,15 @@ def main():
         cmd_compare(args.run1, args.run2)
     elif args.command == "run":
         asyncio.run(cmd_run(args))
+    elif args.command == "dashboard":
+        if args.all:
+            cmd_dashboard(compare_all=True)
+        elif args.compare:
+            cmd_dashboard(compare_ids=args.compare)
+        else:
+            cmd_dashboard(run_id=args.run_id)
     else:
-        print("Usage: python benchmark.py {run|list|compare} [options]")
+        print("Usage: python benchmark.py {run|list|compare|dashboard} [options]")
         print("Use --help for more information.")
 
 
