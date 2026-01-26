@@ -483,6 +483,23 @@ df_actuals = df[df['Version'] == 'Actual']  # No 's' - returns 0 rows silently
 df_actuals = df[df['Version'] == 'Actuals']
 ```
 
+### No Forecast/Budget Data - Only Actuals Exist
+**Trigger**: Query asks about forecasts, budgets, projections, or predicted values
+**Reality**: The `Version` column ONLY contains `'Actuals'`. There is no forecast, budget, or plan data in this dataset.
+**Response**: Immediately explain that forecast data is not available. Do NOT waste tool calls searching for it.
+
+```python
+# Check what versions exist (spoiler: only 'Actuals')
+print(df['Version'].unique())
+# Output: ['Actuals']
+
+# CORRECT response to "What's the forecasted revenue?"
+print("This dataset contains only Actuals data (historical). Forecast/budget data is not available.")
+print("Options: 1) Obtain a separate forecast dataset, 2) Build a forecasting model from historical data")
+```
+
+**Key terms that indicate forecast queries**: forecast, forecasted, budget, budgeted, projected, predicted, plan, planned, target, estimate
+
 ### Pandas GroupBy.apply() Index/Column Ambiguity
 **Trigger**: Using groupby().apply() that modifies the DataFrame, then trying to groupby on the same column again
 **Reality**: After apply(), the grouping columns may become both index levels AND column labels, causing ambiguity errors
