@@ -307,6 +307,19 @@ print(df.columns.tolist())
 **Reality**: The dataset has `Fiscal Period` (1-12) and `Fiscal Quarter`, but no 'Month' column
 **Correct approach**: Use `Fiscal Period` as the month identifier, or combine `Fiscal Year` + `Fiscal Period` for unique months
 
+### No 'Quarter' Column - Use 'Fiscal Quarter'
+**Trigger**: Query asks about quarterly data (Q1, Q2, Q3, Q4)
+**Reality**: The column is named `Fiscal Quarter`, NOT `Quarter`
+**Correct approach**: Always use `df['Fiscal Quarter']` for quarterly filtering
+
+```python
+# WRONG
+df[df['Quarter'] == 'Q4']  # KeyError: 'Quarter'
+
+# CORRECT
+df[df['Fiscal Quarter'] == 'Q4']
+```
+
 ### No Direct Revenue/COGS Columns
 **Trigger**: Code attempts to access `df['Revenue']` or `df['COGS']`
 **Reality**: These columns don't exist
