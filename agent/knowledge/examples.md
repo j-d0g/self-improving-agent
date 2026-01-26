@@ -561,6 +561,69 @@ print(quarterly_cv)
 
 ---
 
+### Variance Analysis Against Period Average
+
+**Query**: "Perform a variance analysis comparing each month's actuals against the yearly average for all L2 line items"
+
+**Interpretation**: For each L2 line item, calculate how each fiscal quarter (or period) deviates from the yearly average, both in absolute terms and as a percentage.
+
+**Code**:
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# Filter for Actuals version
+df_actuals = df[df['Version'] == 'Actuals']
+
+# Get unique L2 line items
+l2_items = df_actuals['FSLine Statement L2'].unique()
+
+# Prepare results storage
+variance_results = []
+
+# Perform variance analysis for each L2 line item
+for l2_item in l2_items:
+    # Filter data for this L2 line item
+    l2_data = df_actuals[df_actuals['FSLine Statement L2'] == l2_item]
+
+    # Calculate yearly average for this L2 line item
+    yearly_avg = l2_data['Amount in USD'].mean()
+
+    # Group by Fiscal Quarter and calculate variances
+    quarterly_data = l2_data.groupby('Fiscal Quarter')['Amount in USD'].agg([
+        ('Quarterly_Total', 'sum'),
+        ('Quarterly_Mean', 'mean'),
+        ('Variance_from_Yearly_Avg', lambda x: x.mean() - yearly_avg),
+        ('Variance_Percentage', lambda x: ((x.mean() - yearly_avg) / yearly_avg) * 100 if yearly_avg != 0 else 0)
+    ]).reset_index()
+
+    # Add L2 line item to results
+    quarterly_data['FSLine Statement L2'] = l2_item
+    quarterly_data['Yearly_Average'] = yearly_avg
+
+    variance_results.append(quarterly_data)
+
+# Combine all results
+final_results = pd.concat(variance_results)
+
+# Sort the results for better readability
+final_results_sorted = final_results.sort_values(['FSLine Statement L2', 'Fiscal Quarter'])
+print(final_results_sorted.to_string(index=False))
+```
+
+**Key insight**:
+1. **CRITICAL**: Use `'FSLine Statement L2'` not `'L2'` - the abbreviated name doesn't exist
+2. **CRITICAL**: Use `'Amount in USD'` not `'Amount'`
+3. Filter for `Version == 'Actuals'` if needed (though this dataset is all Actuals)
+4. Calculate yearly average first, then compare each period to it
+5. Variance percentage formula: `(period_mean - yearly_avg) / yearly_avg * 100`
+6. Use `pd.concat()` to combine results from loop iterations
+7. There are 16 L2 line items in total across the 4 L1 categories
+
+---
+
 ### Rolling Average with Threshold Detection
 
 **Query**: "Calculate the 3-month rolling average of OPEX for each product and identify when any exceeded its rolling average by more than 10%"
