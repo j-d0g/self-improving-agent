@@ -1077,6 +1077,37 @@ print(df.columns.tolist())
 
 ---
 
+### MISTAKE: Not Using include_groups=False with GroupBy.apply()
+
+**Query**: Any query using groupby().apply() to calculate YoY changes or rolling metrics
+
+**Wrong approach**:
+```python
+# WRONG - triggers FutureWarning and may behave unexpectedly in future pandas versions
+def calculate_yoy_change(group):
+    group = group.sort_values('Fiscal Year')
+    group['Margin_Change'] = group['Profit_Margin'] - group['Profit_Margin'].shift(1)
+    return group
+
+result = df.groupby(['Product', 'Country']).apply(calculate_yoy_change)  # Missing include_groups=False!
+# FutureWarning: DataFrameGroupBy.apply operated on the grouping columns.
+# This behavior is deprecated...
+```
+
+**Why it fails**: Starting in pandas 2.0+, `groupby().apply()` includes the grouping columns in the operation by default, but this behavior is deprecated. Without `include_groups=False`, you get a FutureWarning and the behavior may change in future versions.
+
+**Correct approach**:
+```python
+# CORRECT - explicitly exclude grouping columns
+result = df.groupby(['Product', 'Country'], group_keys=False).apply(
+    calculate_yoy_change, include_groups=False
+)
+```
+
+**How to recognize this trap**: Any time you use `groupby().apply()` with a function that modifies or returns the group, add `include_groups=False` to suppress the warning and ensure consistent behavior.
+
+---
+
 ### MISTAKE: Pandas GroupBy.apply() Creating Index/Column Ambiguity
 
 **Query**: Any variance analysis or transformation that uses groupby().apply() followed by another groupby
