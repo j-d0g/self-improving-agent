@@ -134,7 +134,7 @@ cogs_df = df[df['FSLine Statement L1'] == 'Cost of Goods Sold'].groupby(
     ['Product', 'Country', 'Fiscal Year']
 )['Amount in USD'].sum().reset_index(name='COGS')
 
-opex_df = df[df['FSLine Statement L1'] == 'Operating Expenses'].groupby(
+opex_df = df[df['FSLine Statement L1'] == 'OPEX'].groupby(
     ['Product', 'Country', 'Fiscal Year']
 )['Amount in USD'].sum().reset_index(name='OPEX')
 
