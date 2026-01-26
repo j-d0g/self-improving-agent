@@ -1141,6 +1141,43 @@ Print unique values to verify: `print(df['FSLine Statement L2'].unique())`
 
 ---
 
+### MISTAKE: Assuming Helper Functions Exist in functions.py
+
+**Query**: Any query where you try to use helper functions from knowledge/functions.py
+
+**Wrong approach**:
+```python
+# WRONG - assuming functions exist without checking!
+import sys
+sys.path.insert(0, 'knowledge')
+from functions import safe_read_csv  # ImportError! This function doesn't exist
+
+df = safe_read_csv('data/FUN_company_pl_actuals_dataset.csv')
+```
+
+**Why it fails**: The learner assumed a `safe_read_csv` helper function exists in `knowledge/functions.py`, but it doesn't. This wastes a tool call and requires recovery.
+
+**Correct approach**:
+```python
+# CORRECT - use standard pandas, or check functions.py first
+import pandas as pd
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# If you want to use helper functions, check what's actually available:
+# 1. calculate_rolling_average_with_threshold
+# 2. compare_products_on_metrics
+# 3. find_outliers_iqr
+# 4. find_outliers_zscore
+```
+
+**How to recognize this trap**: Before importing from `knowledge/functions.py`, either:
+1. Use standard pandas (it's always available and reliable)
+2. Check what functions actually exist in the file first
+
+The helper functions in `functions.py` are for specific complex patterns (rolling averages, product comparisons, outlier detection) - not basic operations like reading CSV files.
+
+---
+
 ### MISTAKE: Pandas GroupBy.apply() Creating Index/Column Ambiguity
 
 **Query**: Any variance analysis or transformation that uses groupby().apply() followed by another groupby
