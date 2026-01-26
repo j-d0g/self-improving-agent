@@ -1674,6 +1674,46 @@ print('Total:', total)  # Simple, always works
 
 ---
 
+### Quarterly Revenue for a Specific Year (e.g., Q4 2024)
+
+**Query**: "What was the revenue for Q4 in 2024?" or "Show me Q4 2024 numbers"
+
+**Interpretation**: Retrieve actual revenue data for a specific fiscal quarter and year combination.
+
+**Code**:
+```python
+import pandas as pd
+
+df = pd.read_csv('data/FUN_company_pl_actuals_dataset.csv')
+
+# CRITICAL: Filter by BOTH time dimensions AND financial category!
+q4_2024_revenue = df[
+    (df['Fiscal Year'] == 2024) &
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+]['Amount in USD'].sum()
+
+print('Q4 2024 Revenue: ${:,.2f}'.format(q4_2024_revenue))
+
+# For breakdown by Product:
+q4_2024_by_product = df[
+    (df['Fiscal Year'] == 2024) &
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')
+].groupby('Product')['Amount in USD'].sum()
+
+print('\nQ4 2024 Revenue by Product:')
+print(q4_2024_by_product)
+```
+
+**Key insight**:
+1. **CRITICAL**: ALWAYS include `FSLine Statement L1` filter when calculating revenue, COGS, or OPEX
+2. Without L1 filter, `Amount in USD` includes ALL financial categories mixed together (meaningless!)
+3. `Fiscal Year` is numeric (2024), `Fiscal Quarter` is string ('Q4')
+4. For currency formatting in bash, use `.format()` not f-strings with `$`
+
+---
+
 ### MISTAKE: Misinterpreting "Forecast" Query When Only Actuals Exist
 
 **Query**: "What's forecast for Q4 in 2024"
