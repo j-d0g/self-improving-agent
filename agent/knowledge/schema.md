@@ -522,6 +522,26 @@ for (product, period), group in df.groupby(['Product', 'Period']):
 variance_df = pd.DataFrame(results)
 ```
 
+### "Forecast for Q4 2024" - Clarify Actuals vs Forecast Terminology
+**Trigger**: User asks about "forecast for [specific past period]" like "forecast for Q4 2024"
+**Reality**: The dataset contains ONLY `'Actuals'`. Q4 2024 data IS actual historical data, not a forecast.
+**Response**:
+1. Clarify that the requested data is actually actuals (historical), not forecast
+2. Provide the actual data with correct L1 filtering
+3. If user truly wants a forecast, offer to build one from historical trends
+
+```python
+# User asked for "forecast for Q4 2024" but Q4 2024 is actuals data
+print("Note: Q4 2024 data in this dataset is historical actuals, not forecast.")
+
+# CRITICAL: Filter by L1 before summing!
+q4_2024_revenue = df[
+    (df['Fiscal Year'] == 2024) &
+    (df['Fiscal Quarter'] == 'Q4') &
+    (df['FSLine Statement L1'] == 'Net Revenue')  # DON'T FORGET THIS!
+]['Amount in USD'].sum()
+```
+
 ### Creating Forecasts from Historical Data
 **Trigger**: User asks to "forecast" or "predict" a metric (e.g., "forecast Q4 revenue")
 **Reality**: This dataset only contains `'Actuals'` - there is NO forecast/budget data to retrieve
