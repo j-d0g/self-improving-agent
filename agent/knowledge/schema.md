@@ -320,3 +320,23 @@ print("Employee headcount and HR metrics are not available in this dataset.")
 ```
 
 **Note**: While there is a `Headcount Expenses` L2 line item under OPEX, this represents the dollar cost, NOT the number of employees.
+
+### Pandas Pivot Table Column Suffixes After Merge
+**Trigger**: Merging two pivot tables that share column names
+**Reality**: Pandas automatically adds `_x` and `_y` suffixes to disambiguate overlapping columns
+**Response**: Either use `suffixes=('_name1', '_name2')` in merge, or check `merged.columns.tolist()` after merge
+
+```python
+# After pivoting and merging:
+revenue_pivot = df.pivot_table(index=['Country'], columns='Product', values='Revenue')
+cogs_pivot = df.pivot_table(index=['Country'], columns='Product', values='COGS')
+merged = revenue_pivot.merge(cogs_pivot, on=['Country'])
+
+# WRONG - these column names don't exist after merge!
+merged['Product A']  # KeyError!
+
+# CORRECT - check actual columns after merge
+print(merged.columns.tolist())
+# Shows: ['Country', 'Product A_x', 'Product A_y', 'Product B_x', ...]
+# Where _x is revenue, _y is cogs
+```
