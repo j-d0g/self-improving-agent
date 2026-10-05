@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .log_utils import read_json_logs
 from .playbook_utils import (
     BulletTag,
     DeltaOp,
@@ -238,17 +239,7 @@ class Curator:
 
     def read_reflector_logs(self) -> list[dict]:
         """Read all reflector logs from the directory."""
-        logs = []
-        if not self.reflector_log_dir.exists():
-            return logs
-
-        for log_file in sorted(self.reflector_log_dir.glob("*.json")):
-            try:
-                with open(log_file) as f:
-                    logs.append(json.load(f))
-            except (json.JSONDecodeError, IOError):
-                continue
-        return logs
+        return read_json_logs(self.reflector_log_dir)
 
     def clear_reflector_logs(self) -> int:
         """Clear processed reflector logs."""

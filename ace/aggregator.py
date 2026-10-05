@@ -25,6 +25,7 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
+from .log_utils import read_json_logs
 from .playbook_utils import (
     Bullet,
     DeltaOp,
@@ -193,31 +194,11 @@ class Aggregator:
 
     def read_curator_logs(self) -> list[dict]:
         """Read all curator logs from the directory."""
-        logs = []
-        if not self.curator_log_dir.exists():
-            return logs
-
-        for log_file in sorted(self.curator_log_dir.glob("curator_*.json")):
-            try:
-                with open(log_file) as f:
-                    logs.append(json.load(f))
-            except (json.JSONDecodeError, IOError):
-                continue
-        return logs
+        return read_json_logs(self.curator_log_dir, "curator_*.json")
 
     def read_reflector_logs(self) -> list[dict]:
         """Read all reflector logs from the directory."""
-        logs = []
-        if not self.reflector_log_dir.exists():
-            return logs
-
-        for log_file in sorted(self.reflector_log_dir.glob("*.json")):
-            try:
-                with open(log_file) as f:
-                    logs.append(json.load(f))
-            except (json.JSONDecodeError, IOError):
-                continue
-        return logs
+        return read_json_logs(self.reflector_log_dir)
 
     def clear_curator_logs(self) -> int:
         """Clear processed curator logs."""
